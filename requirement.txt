@@ -1,0 +1,4 @@
+-e git+https://github.com/marlbenchmark/on-policy.git#egg=onpolicy
+mujoco
+gymnasium
+numpy
