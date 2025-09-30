@@ -21,7 +21,7 @@ class TorchCCModel(TorchModelV2, nn.Module):
         TorchModelV2.__init__(self, obs_space, action_space, num_outputs, model_config, name)
         nn.Module.__init__(self)
 
-        # Use np.prod (NumPy 2.0+ removed some aliases)
+        # Use local observation
         obs_size = int(np.prod(obs_space.shape))
 
         # Read from custom_model_config (DO NOT accept as kwarg)

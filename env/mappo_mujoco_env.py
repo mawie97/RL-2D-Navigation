@@ -35,7 +35,7 @@ class MultiAgentSAR(MultiAgentEnv):
     - info['global_state'] returned each step for centralized critic
     - Can rotate between multiple XML models
     """
-    def __init__(self, csv_log_path, xml_paths, render_enabled = True):
+    def __init__(self, csv_log_path, xml_paths, render_enabled = True, seed = None):
         super().__init__()
         
         self.xml_paths = xml_paths
@@ -159,7 +159,6 @@ class MultiAgentSAR(MultiAgentEnv):
             for name in self.agent_names}
         return obs
 
-
     def _get_global_state(self, obs_dict: Dict[str, np.ndarray] | None = None) -> np.ndarray:
        """
        Return a single flat array, the critic's input in MAPPO
@@ -215,7 +214,6 @@ class MultiAgentSAR(MultiAgentEnv):
                 print(f"{name}: actuator {aname} -> joint {jname} (type={jtype}, body={bname}, "
                     f"jrange={'['+','.join(f'{x:.3f}' for x in jrng)+']' if limited_j else 'unlimited'}), "
                     f"ctrlrange={[lo, hi]}, gear={gear}")
-
     
     def _calculate_joint_target(self, name, delta):
         """
@@ -391,10 +389,15 @@ class MultiAgentSAR(MultiAgentEnv):
             done = bool(collided)
         
         reward = {name: float(team_rew) for name in self.agent_names}
-        terminated = {name: bool(done) for name in self.agent_names}
-        truncated = {name: (self._step_count >= self.max_steps) for name in self.agent_names}
-        terminated["__all__"] = done
-        truncated["__all__"] = (self._step_count >= self.max_steps)
+        
+        # terminated = {name: bool(done) for name in self.agent_names}
+        # truncated = {name: (self._step_count >= self.max_steps) for name in self.agent_names}
+        # terminated["__all__"] = done
+        # truncated["__all__"] = (self._step_count >= self.max_steps)
+
+        terminated = {"__all__":done}
+        truncated = {"__all__": self._step_count >= self.max_steps}
+        
         gs = self._get_global_state(obs).astype(np.float32)
         info = {"__common__": {"global_state": gs},
             # optional: per-agent diagnostics
