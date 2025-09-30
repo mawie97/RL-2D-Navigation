@@ -1,4 +1,6 @@
--e git+https://github.com/marlbenchmark/on-policy.git#egg=onpolicy
-mujoco
+ray[rllib]
+torch
 gymnasium
+mujoco
+mujoco‑viewer
 numpy
