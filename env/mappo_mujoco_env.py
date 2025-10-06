@@ -54,7 +54,8 @@ class MultiAgentSAR(MultiAgentEnv):
         self.max_distance = MAX_DISTANCE
         self.max_steps = MAX_STEPS
         self.csv_log_path = csv_log_path
-        print(f"Loaded XML paths: {self.xml_paths}")
+        # print(f"Loaded XML paths: {self.xml_paths}")
+        # print(" ")
         
         self._load_model_and_setup(self.current_xml_index)
         self._reset_episode_state()   
@@ -68,7 +69,6 @@ class MultiAgentSAR(MultiAgentEnv):
             self.log_writer = csv.writer(self.log_file_handle)
             # self.log_writer.writerow(['Step', 'pre_x', 'pre_y', 'current_x', 'current_y', 'target_x','target_y', 'delta_x', 'delta_y', 'pre_distance','current_distance','dist_value','RE: dis_change', 'RE: distance', 'RE: obstacle_avoidance', 'Total: reward' , 'Status'])
             self.log_writer.writerow(['Episode', 'Status'])
-        self._debug_actuators()
 
     def _load_model_and_setup(self, index):
         self._load_model(index)
@@ -76,6 +76,7 @@ class MultiAgentSAR(MultiAgentEnv):
         self.agent_map = self._build_agent_map()
         self._setup_agents_ray_casting()
         self._setup_action_observation_spaces()
+        # self._debug_actuators()
 
     def _load_model(self, index):
         self.model = mujoco.MjModel.from_xml_path(self.xml_paths[index])
@@ -89,7 +90,7 @@ class MultiAgentSAR(MultiAgentEnv):
             if name and name.startswith(self.agent_prefix): 
                 self.agent_names.append(name)
 
-        self.agent_names = list(self.agent_names)
+        self.agent_names = sorted(self.agent_names)
         self.n_agents = len(self.agent_names)
     
     def _setup_agents_ray_casting(self):
@@ -115,16 +116,15 @@ class MultiAgentSAR(MultiAgentEnv):
         self.max = MAX_ACTION        
         self.obs_dim = OBS_DIM
         self.act_dim = ACT_DIM
+        self.global_dim = self.obs_dim * self.n_agents
         
         self.observation_space = gym.spaces.Dict({
-        name: gym.spaces.Box(low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float32)
-        for name in self.agent_names
+            "obs":   gym.spaces.Box(-np.inf, np.inf, shape=(self.obs_dim,),   dtype=np.float32),
+            "state": gym.spaces.Box(-np.inf, np.inf, shape=(self.global_dim,), dtype=np.float32),
         })
       
-        self.action_space = gym.spaces.Dict({
-            name: gym.spaces.Box(low=-self.max, high=self.max, shape=(self.act_dim,), dtype=np.float32)
-            for name in self.agent_names
-        })
+        # One agent's action space: (2,)
+        self.action_space = gym.spaces.Box(-self.max, self.max, shape=(self.act_dim,), dtype=np.float32)
 
     def _switch_model(self):
         self.current_xml_index = (self.current_xml_index + 1) % self.num_xmls
@@ -183,37 +183,19 @@ class MultiAgentSAR(MultiAgentEnv):
             if delta.shape != (2,):
                 raise ValueError(f"Action for '{name}' must be shape (2,), got {delta.shape}")
             if name not in self.agent_map:
-                raise KeyError(f"No ctrl map entry for agent '{name}'")
+                raise KeyError(f"No ctrl map entry for agent '{name}'")     
+            
             ids = self.agent_map[name]["ctrl_ids"]
+
             if len(ids) != 2:
                 raise ValueError(f"Expected 2 actuator ids for '{name}', got {len(ids)}")
+            
             joint_target = self._calculate_joint_target(name, delta)
             
+            
             self.data.ctrl[ids] = joint_target
-            print("Agent: " + name + " Apply ctrl id: " + str(ids))
-            print(" ")
-    def _debug_actuators(self):
-        print("=== Actuator wiring ===")
-        for name in self.agent_names:
-            ids = self.agent_map[name]["ctrl_ids"]
-            for a_id in ids:
-                if a_id < 0:
-                    print(f"{name}: actuator id {a_id} (invalid!)")
-                    continue
-                aname = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, a_id)
-                j_id = int(self.model.actuator_trnid[a_id][0])
-                jname = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, j_id)
-                b_id = int(self.model.jnt_bodyid[j_id])
-                bname = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, b_id)
-                jtype = int(self.model.jnt_type[j_id])  # 0=free,1=ball,2=slide,3=hinge
-                jrng = self.model.jnt_range[j_id]
-                limited_j = bool(jrng[0] != 0.0 or jrng[1] != 0.0)
-                limited_a = bool(self.model.actuator_ctrllimited[a_id])
-                lo, hi = self.model.actuator_ctrlrange[a_id]
-                gear = float(self.model.actuator_gear[a_id][0])
-                print(f"{name}: actuator {aname} -> joint {jname} (type={jtype}, body={bname}, "
-                    f"jrange={'['+','.join(f'{x:.3f}' for x in jrng)+']' if limited_j else 'unlimited'}), "
-                    f"ctrlrange={[lo, hi]}, gear={gear}")
+            # print("Agent: " + name + " Apply ctrl id: " + str(ids))
+            # print(" ")
     
     def _calculate_joint_target(self, name, delta):
         """
@@ -264,7 +246,12 @@ class MultiAgentSAR(MultiAgentEnv):
     def _update_rays(self, agent_name: str):
         agent_body_id = self.agent_map[agent_name]["body_id"]
         origin = self.data.xpos[agent_body_id][:3]  # Use current agent position
-        
+         
+        # Clear previous outputs (robustness)
+        self.ray_geomid_out.fill(-1)
+        self.ray_dist_out.fill(-1.0)
+
+
         mujoco.mj_multiRay(
             self.model,
             self.data,
@@ -346,15 +333,18 @@ class MultiAgentSAR(MultiAgentEnv):
         if self.num_xmls > 1 and self.episode_count > 1 and \
            self.episode_count % self.switch_every == 0:
             self._switch_model()
+        print("   Env")
         print(f"current episode: {self.episode_count}, current_xml file: {self.xml_paths[self.current_xml_index]}")
         
         mujoco.mj_resetData(self.model, self.data)
         mujoco.mj_forward(self.model, self.data)
         self._reset_episode_state()
         
-        obs = self._get_local_obs_dict() # actor input
-        gs = self._get_global_state(obs).astype(np.float32)
-        info = {"__common__": {"global_state": gs}} # critic input
+        local_obs = self._get_local_obs_dict() # actor input
+        gs = self._get_global_state(local_obs).astype(np.float32)
+
+        obs = {name: {"obs": local_obs[name], "state": gs} for name in self.agent_names}
+        info = {name: {} for name in self.agent_names}
         return obs, info
     
     # {
@@ -373,13 +363,21 @@ class MultiAgentSAR(MultiAgentEnv):
         frame_skip = 100  # try 1–5
         for _ in range(frame_skip):
             mujoco.mj_step(self.model, self.data)
+       
         collided = False
 
         # print()
         # collided = self._move_agents_to_target() # Not implement yet because not sure about the termination condition
         self.render()
-        obs = self._get_local_obs_dict()
+    
+
+        # terminated = {"__all__":done}
+        # truncated = {"__all__": self._step_count >= self.max_steps}
         
+        local_obs = self._get_local_obs_dict()
+        gs = self._get_global_state(local_obs).astype(np.float32)
+        obs = {name: {"obs": local_obs[name], "state": gs} for name in self.agent_names} 
+
         #To be implement
         team_rew, found_done = self._compute_reward_done()
         
@@ -388,30 +386,25 @@ class MultiAgentSAR(MultiAgentEnv):
         else:
             done = bool(collided)
         
-        reward = {name: float(team_rew) for name in self.agent_names}
-        
-        # terminated = {name: bool(done) for name in self.agent_names}
-        # truncated = {name: (self._step_count >= self.max_steps) for name in self.agent_names}
-        # terminated["__all__"] = done
-        # truncated["__all__"] = (self._step_count >= self.max_steps)
-
-        terminated = {"__all__":done}
-        truncated = {"__all__": self._step_count >= self.max_steps}
-        
-        gs = self._get_global_state(obs).astype(np.float32)
-        info = {"__common__": {"global_state": gs},
-            # optional: per-agent diagnostics
-            **{name: {"collision": False} for name in self.agent_names}
-        }
+        info = {name: {} for name in self.agent_names}
         self._step_count += 1
+
+        reward = {name: float(team_rew) for name in self.agent_names}
+
+        terminated = {name: bool(done) for name in self.agent_names}
+        truncated = {name: (self._step_count >= self.max_steps) for name in self.agent_names}
+        terminated["__all__"] = done
+        truncated["__all__"] = (self._step_count >= self.max_steps)
+        
+
 
         for name in self.agent_names:
             bid = self.agent_map[name]["body_id"]
             pos = self.data.xpos[bid][:2]
             ids = self.agent_map[name]["ctrl_ids"]
             ctrl = self.data.ctrl[ids]
-            print(f"[{name}] pos={pos}, ctrl={ctrl}")
-            print(" ")
+            # print(f"[{name}] pos={pos}, ctrl={ctrl}")
+            # print(" ")
 
         return obs, reward, terminated, truncated, info
    
@@ -420,7 +413,9 @@ class MultiAgentSAR(MultiAgentEnv):
         steps = 0
         for n in range (100):
             mujoco.mj_step(self.model, self.data)
+            print(" ")
             print("Step " + str(steps) + "times")
+            print(" ")
             if self._check_collision():
                 collided = True
                 break        
@@ -448,11 +443,11 @@ class MultiAgentSAR(MultiAgentEnv):
 
             # Agent's joints
             for j in [1, 2]:
-                act_name = f"{agent}_j{j}"
-                print(act_name)
-                a_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, act_name)
+                joint_name = f"{agent}_j{j}"
+                # print(joint_name)
+                j_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
                 # print("AGENT MAP "+  act_name + str(a_id))
-                ids.append(a_id)
+                ids.append(j_id)
             ids = np.array(ids, dtype=np.int32)
 
             # Original body position (xy)
@@ -463,12 +458,12 @@ class MultiAgentSAR(MultiAgentEnv):
         
         # print("=== Agent map ===")
         
-        # for name, m in agent_map.items():
-        #     ctrl_ids = m["ctrl_ids"].tolist()
-        #     init_pos = m["init_pos"].tolist()
-        #     body_id  = int(m["body_id"])
-        #     print(f"{name}: body_id={body_id}, ctrl_ids={ctrl_ids}, init_pos={init_pos}")
-
+        for name, m in agent_map.items():
+            ctrl_ids = m["ctrl_ids"].tolist()
+            init_pos = m["init_pos"].tolist()
+            body_id  = int(m["body_id"])
+            # print(f"{name}: body_id={body_id}, ctrl_ids={ctrl_ids}, init_pos={init_pos}")
+        
         return agent_map
 
     # ================= Render / Close =================
@@ -519,3 +514,8 @@ class MultiAgentSAR(MultiAgentEnv):
             except Exception:
                 pass
             self.viewer = None
+
+        if hasattr(self, "log_file_handle") and self.log_file_handle is not None:
+            try: self.log_file_handle.close()
+            except Exception: pass
+            self.log_file_handle = None

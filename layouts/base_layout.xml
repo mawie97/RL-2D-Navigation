@@ -11,6 +11,7 @@
     <!-- Excluding the contact between the agent and the goal, and the agent and the floor -->
     <contact>
         <exclude body1 = "agent_1" body2 = "floor"/>
+        <exclude body1 = "agent_2" body2 = "floor"/>
     </contact>
 
     <extension>
