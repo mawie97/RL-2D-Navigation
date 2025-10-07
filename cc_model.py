@@ -1,29 +1,9 @@
-# cc_model.py
 import numpy as np
 import torch
 import torch.nn as nn
 from gymnasium.spaces import Dict as DictSpace, Box
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.models.catalog import ModelCatalog
-from ray.rllib.algorithms.callbacks import DefaultCallbacks
-from ray.rllib.policy.sample_batch import SampleBatch
-
-class DebugBatches(DefaultCallbacks):
-    def on_learn_on_batch_begin(self, *, policy, train_batch, **kwargs):
-        # train_batch is for a single policy (your shared policy).
-        obs = train_batch[SampleBatch.OBS]          # Dict: {"obs": ..., "state": ...}
-        agent_idx = train_batch["agent_index"]     # Per-row agent indices in this batch
-
-        local = obs["obs"]     # shape [B, 12]
-        global_ = obs["state"] # shape [B, 24]
-
-        # Print a few rows with which agent they came from.
-        n = min(4, len(local))
-        for i in range(n):
-            print(f"[BATCH] row {i} agent_idx={int(agent_idx[i])} "
-                  f"local[:4]={local[i][:4].tolist()} sum={float(local[i].sum()):.4f} "
-                  f"global_sum={float(global_[i].sum()):.4f}")
-
 
 def _np_str(a):
     # consistent formatting for comparison with env prints
@@ -112,8 +92,9 @@ class TorchCCModel(TorchModelV2, nn.Module):
                not torch.allclose(o_global, torch.zeros_like(o_global)):
                 loc0 = o_local[0].detach().cpu().numpy()
                 glo0 = o_global[0].detach().cpu().numpy()
-                print(f"[MODEL/ACTOR] local[0]={_np_str(loc0)}  sum={loc0.sum():.6f}")
+                print(f"[CCMODEL/ACTOR] local[0]={_np_str(loc0)}  sum={loc0.sum():.6f}")
                 print(f"[MODEL/CRITIC-feed] global[0]={_np_str(glo0)}  sum={glo0.sum():.6f}")
+                print(" ")
                 self._actor_prints += 1
 
 
@@ -124,7 +105,7 @@ class TorchCCModel(TorchModelV2, nn.Module):
     def value_function(self):
         if self._debug and self._vf_in is not None and self._critic_prints < 2:
             glo0 = self._vf_in[0].detach().cpu().numpy()
-            print(f"[MODEL/CRITIC] cached global[0]={_np_str(glo0)}  sum={glo0.sum():.6f}")
+            print(f"[_CCMODEL/CRITIC] cached global[0]={_np_str(glo0)}  sum={glo0.sum():.6f}")
             self._critic_prints += 1
 
         if self._vf_in is None:

@@ -4,7 +4,26 @@ from env_rllib_wrapper import register_sar_env
 import cc_model
 import numpy as np
 from gymnasium.spaces import Dict as DictSpace, Box
- 
+from ray.rllib.algorithms.callbacks import DefaultCallbacks
+from ray.rllib.policy.sample_batch import SampleBatch
+
+class DebugBatches(DefaultCallbacks):
+    def on_learn_on_batch_begin(self, *, policy, train_batch, **kwargs):
+        # train_batch is for a single policy (shared policy).
+        obs = train_batch[SampleBatch.OBS]          # Dict: {"obs": ..., "state": ...}
+        agent_idx = train_batch["agent_index"]     # Per-row agent indices in this batch
+
+        local = obs["obs"]     # shape [B, 12]
+        global_ = obs["state"] # shape [B, 24]
+
+        # Print a few rows with which agent they came from.
+        n = min(4, len(local))
+        for i in range(n):
+            print(f"[BATCH] row {i} agent_idx={int(agent_idx[i])} "
+                  f"local[:4]={local[i][:4].tolist()} sum={float(local[i].sum()):.4f} "
+                  f"global_sum={float(global_[i].sum()):.4f}")
+
+
 def policy_mapping_fn(agent_id, *args, **kwargs):
     return "shared_policy"
 
@@ -59,9 +78,10 @@ if __name__ == "__main__":
                 },
             },
             gamma=0.995, lr=3e-4, lambda_=0.95,
-            train_batch_size=32768, minibatch_size=2048, num_epochs=10,
+            train_batch_size=2048, minibatch_size=2048, num_epochs=10,
             clip_param=0.2, vf_clip_param=100.0, entropy_coeff=0.0,
         )
+        # train_batch_size=32768
         .callbacks(DebugBatches)
         .resources(num_gpus=0)
         .env_runners(num_env_runners=1, rollout_fragment_length=200)
@@ -80,7 +100,6 @@ if __name__ == "__main__":
 
 
     algo = config.build_algo()
-
 
     for i in range(1):
         result = algo.train()

@@ -16,7 +16,7 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 SWITCH_EVERY = 10
 POSITION_HISTORY_LEN = 20
-CUTOFF_VALUE = 0.2
+CUTOFF_VALUE = 1
 MAX_DISTANCE = 50.0
 MAX_STEPS = 1000
 MAX_ACTION = 0.1
@@ -25,7 +25,7 @@ OBS_DIM = 12
 ACT_DIM = 2
 N_RAYS = 12
 RAY_LENGTH = 1.5
-NOISE_STD = 0.01
+NOISE_STD = 0.00
 TARGET_NR = 2
 
 class MultiAgentSAR(MultiAgentEnv):
@@ -63,6 +63,11 @@ class MultiAgentSAR(MultiAgentEnv):
         self.found_targets:set[int] = set()
         self.last_ray_hits: Dict[str, set[int]] = {name : set() for name in self.agent_names}
         self.target_nr = TARGET_NR
+
+        self.debug_dump = bool(render_enabled)  # or from env_config["debug_dump"]
+        self._printed_reset = False
+        self._printed_step  = False
+
         
         if self.csv_log_path is not None:
             self.log_file_handle = open(self.csv_log_path, mode='w', newline='')
@@ -295,18 +300,23 @@ class MultiAgentSAR(MultiAgentEnv):
             0.577  # 330°
         ])
         
+        print(" ")
+        print(f"Raw_reading with -1 {raw_readings}")
         # Replace -1 (no hit) with 1.6 (max range + margin)
         raw_readings = np.where(raw_readings == -1, 1.6, raw_readings)
-        
+
+        print(f"Raw_reading without -1  {raw_readings}")
+
         # Subtract offsets
         surface_distances = raw_readings - offsets
         
-        # Clip negative distances to zero
+        print(f"Surface distance before clip {surface_distances}")
         surface_distances = np.clip(surface_distances, 0, None)
         
+        print(f"Surface distance after clip {surface_distances}")
         # Clip max distances to 1.0
         surface_distances = np.clip(surface_distances, None, self.cutoff_value)
-        
+        print(f"Surface distance to cutoff_value {surface_distances}")
         # Add Gaussian noise if noise_std > 0
         if noise_std > 0:
             noise = np.random.normal(0, noise_std, size=surface_distances.shape)
@@ -314,7 +324,8 @@ class MultiAgentSAR(MultiAgentEnv):
             
             # Clip again to [0,1]
             surface_distances = np.clip(surface_distances, 0, 1.0)
-        
+        print(f"Surface distance all {surface_distances}")
+        print(" ")
         return surface_distances
     
     # ================= Gym API =================
@@ -333,8 +344,9 @@ class MultiAgentSAR(MultiAgentEnv):
         if self.num_xmls > 1 and self.episode_count > 1 and \
            self.episode_count % self.switch_every == 0:
             self._switch_model()
-        print("   Env")
-        print(f"current episode: {self.episode_count}, current_xml file: {self.xml_paths[self.current_xml_index]}")
+        print(" ")
+        print(f"Env: current episode: {self.episode_count}, current_xml file: {self.xml_paths[self.current_xml_index]}")
+        print(" ")
         
         mujoco.mj_resetData(self.model, self.data)
         mujoco.mj_forward(self.model, self.data)
@@ -345,6 +357,16 @@ class MultiAgentSAR(MultiAgentEnv):
 
         obs = {name: {"obs": local_obs[name], "state": gs} for name in self.agent_names}
         info = {name: {} for name in self.agent_names}
+
+        # Debug
+        if self.debug_dump and not self._printed_reset:
+            np.set_printoptions(precision=4, suppress=True)
+            for name in self.agent_names:
+                print(f" [ENV_RESET_Agent] {name} local={np.array2string(local_obs[name], separator=', ')}  sum={local_obs[name].sum():.6f}")
+            print(f" [ENV_RESET_Global] global={np.array2string(gs, separator=', ')}  sum={gs.sum():.6f}")
+            print(" ")
+            self._printed_reset = True
+
         return obs, info
     
     # {
@@ -405,6 +427,15 @@ class MultiAgentSAR(MultiAgentEnv):
             ctrl = self.data.ctrl[ids]
             # print(f"[{name}] pos={pos}, ctrl={ctrl}")
             # print(" ")
+
+        # Debug
+        if self.debug_dump and not self._printed_step:
+            np.set_printoptions(precision=4, suppress=True)
+            for name in self.agent_names:
+                print(f"[ENV/STEP_Agent] {name} local={np.array2string(local_obs[name], separator=', ')}  sum={local_obs[name].sum():.6f}")
+            print(f"[ENV/STEP_Global] global={np.array2string(gs, separator=', ')}  sum={gs.sum():.6f}")
+            print(" ")
+            self._printed_step = True
 
         return obs, reward, terminated, truncated, info
    
