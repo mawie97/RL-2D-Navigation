@@ -26,7 +26,7 @@ ACT_DIM = 2
 N_RAYS = 12
 RAY_LENGTH = 1.5
 NOISE_STD = 0.00
-TARGET_NR = 2
+TARGET_NR = 3
 
 class MultiAgentSAR(MultiAgentEnv):
     """
@@ -56,6 +56,12 @@ class MultiAgentSAR(MultiAgentEnv):
         self.csv_log_path = csv_log_path
         # print(f"Loaded XML paths: {self.xml_paths}")
         # print(" ")
+
+        self.reach_tol = 0.01
+        self.max_substeps_per_action = 50000 
+
+        #This is used to save the world target for each agent
+        self._step_targets = {}
         
         self._load_model_and_setup(self.current_xml_index)
         self._reset_episode_state()   
@@ -81,7 +87,6 @@ class MultiAgentSAR(MultiAgentEnv):
         self.agent_map = self._build_agent_map()
         self._setup_agents_ray_casting()
         self._setup_action_observation_spaces()
-        # self._debug_actuators()
 
     def _load_model(self, index):
         self.model = mujoco.MjModel.from_xml_path(self.xml_paths[index])
@@ -180,7 +185,8 @@ class MultiAgentSAR(MultiAgentEnv):
         action_dict: { 'agent_1': np.array([x_setpoint, y_setpoint], dtype=float32), ... }
         self.joint_ctrl_map: { 'agent_1': np.array([id_j1, id_j2], dtype=int32), ... }
         """
-        
+        # print(" ")
+        # print(f"Predict Action: {action_dict}")
         for name in self.agent_names:
             if name not in action_dict:
                 raise KeyError(f"Missing action for agent '{name}'")
@@ -195,14 +201,14 @@ class MultiAgentSAR(MultiAgentEnv):
             if len(ids) != 2:
                 raise ValueError(f"Expected 2 actuator ids for '{name}', got {len(ids)}")
             
-            joint_target = self._calculate_joint_target(name, delta)
+            joint_target, target_world = self._calculate_joint_and_world_target(name, delta)
             
-            
+            self._step_targets[name] = target_world
             self.data.ctrl[ids] = joint_target
             # print("Agent: " + name + " Apply ctrl id: " + str(ids))
             # print(" ")
     
-    def _calculate_joint_target(self, name, delta):
+    def _calculate_joint_and_world_target(self, name, delta):
         """
         Compute new joint targets for an agent based on its current (x, y) world position,
         a delta movement, and the initial position.
@@ -214,22 +220,22 @@ class MultiAgentSAR(MultiAgentEnv):
         cur_pos = self.data.xpos[body_id][:2]
 
         # target world position
-        target_pos = cur_pos + delta
+        target_world = cur_pos + delta
 
         # convert to joint targets (relative to initial pos)
-        joint_targets = target_pos - init_pos
+        joint_targets = target_world - init_pos
 
-        return joint_targets.astype(np.float32)
+        return  joint_targets.astype(np.float32), target_world.astype(np.float32)
 
 
     def _compute_reward_done(self) -> Tuple[float, bool]:
         """
         Team reward: +5 the first time any agent's rays hit a 'target' geom this episode.
-        No episode termination from this rule (done=False); keep it simple for now.
         """
         team_rew = 0.0
         # Aggregate newly discovered targets this step
         newly_found = set()
+        # print("")
         for name in self.agent_names:
             for gid in self.last_ray_hits.get(name, ()):
                 if gid not in self.found_targets:
@@ -241,10 +247,10 @@ class MultiAgentSAR(MultiAgentEnv):
         
         if len(self.found_targets) == self.target_nr:
             done = True
+            print(" ")
+            print("All targets has been found, searching is done!")
         else:
             done = False
-        # need to add done = true when all the target has been found
-        
         return float(team_rew), bool(done)
 
 
@@ -300,23 +306,23 @@ class MultiAgentSAR(MultiAgentEnv):
             0.577  # 330°
         ])
         
-        print(" ")
-        print(f"Raw_reading with -1 {raw_readings}")
+        # print(" ")
+        # print(f"Raw_reading with -1 {raw_readings}")
         # Replace -1 (no hit) with 1.6 (max range + margin)
         raw_readings = np.where(raw_readings == -1, 1.6, raw_readings)
 
-        print(f"Raw_reading without -1  {raw_readings}")
+        # print(f"Raw_reading without -1  {raw_readings}")
 
         # Subtract offsets
         surface_distances = raw_readings - offsets
         
-        print(f"Surface distance before clip {surface_distances}")
+        # print(f"Surface distance before clip {surface_distances}")
         surface_distances = np.clip(surface_distances, 0, None)
         
-        print(f"Surface distance after clip {surface_distances}")
+        # print(f"Surface distance after clip {surface_distances}")
         # Clip max distances to 1.0
         surface_distances = np.clip(surface_distances, None, self.cutoff_value)
-        print(f"Surface distance to cutoff_value {surface_distances}")
+        # print(f"Surface distance to cutoff_value {surface_distances}")
         # Add Gaussian noise if noise_std > 0
         if noise_std > 0:
             noise = np.random.normal(0, noise_std, size=surface_distances.shape)
@@ -324,8 +330,8 @@ class MultiAgentSAR(MultiAgentEnv):
             
             # Clip again to [0,1]
             surface_distances = np.clip(surface_distances, 0, 1.0)
-        print(f"Surface distance all {surface_distances}")
-        print(" ")
+        # print(f"Surface distance all {surface_distances}")
+        # print(" ")
         return surface_distances
     
     # ================= Gym API =================
@@ -369,41 +375,51 @@ class MultiAgentSAR(MultiAgentEnv):
 
         return obs, info
     
-    # {
-    # "agent_1": np.array([0.2, -0.1]),
-    # "agent_2": np.array([1.0, 0.0]),
-    # }
     def step(self, action: Dict[str, np.ndarray]):
         
-        # mujoco.mj_step(self.model, self.data)
-
-        # Check if it is necessary!
-        # if self.steps == 0:
-        #     self._build_agent_map()
-
         self._apply_actions_for_agents(action)
-        frame_skip = 100  # try 1–5
-        for _ in range(frame_skip):
-            mujoco.mj_step(self.model, self.data)
-       
+        
+        reached = {name: False for name in self.agent_names}
         collided = False
+        substep = 0
 
-        # print()
-        # collided = self._move_agents_to_target() # Not implement yet because not sure about the termination condition
+        while True:
+            mujoco.mj_step(self.model, self.data)
+            substep += 1
+            collided = self._check_collision()
+            # print(" ")
+            # print(f"Substeps {sub}")
+            if collided:
+                break
+            
+            for name in self.agent_names:
+                if not reached[name]:
+                    bid = self.agent_map[name]["body_id"]
+                    cur = self.data.xpos[bid][:2]
+                    tgt = self._step_targets[name]
+                    if np.linalg.norm(cur - tgt) <= self.reach_tol:
+                        reached[name] = True
+                        # print(f"Agent {name} tgt is {tgt}, cur is {cur}")
+                        # print(f"Agent {name} reach the target position at substeps {substep}! World step: {self._step_count}")
+            
+            if all(reached.values()):
+                # print(f"All agent arrived to the target position! at substeps {substep}")
+                # print(" ")
+                break
+
+            if substep >= self.max_substeps_per_action:
+                break
+        
         self.render()
-    
-
-        # terminated = {"__all__":done}
-        # truncated = {"__all__": self._step_count >= self.max_steps}
         
         local_obs = self._get_local_obs_dict()
         gs = self._get_global_state(local_obs).astype(np.float32)
         obs = {name: {"obs": local_obs[name], "state": gs} for name in self.agent_names} 
 
         #To be implement
-        team_rew, found_done = self._compute_reward_done()
+        team_rew, found_all_target = self._compute_reward_done()
         
-        if found_done:
+        if found_all_target:
             done = True
         else:
             done = bool(collided)
@@ -417,9 +433,8 @@ class MultiAgentSAR(MultiAgentEnv):
         truncated = {name: (self._step_count >= self.max_steps) for name in self.agent_names}
         terminated["__all__"] = done
         truncated["__all__"] = (self._step_count >= self.max_steps)
-        
 
-
+        # For debug
         for name in self.agent_names:
             bid = self.agent_map[name]["body_id"]
             pos = self.data.xpos[bid][:2]
@@ -438,25 +453,11 @@ class MultiAgentSAR(MultiAgentEnv):
             self._printed_step = True
 
         return obs, reward, terminated, truncated, info
-   
-    def _move_agents_to_target(self):
-        collided = False
-        steps = 0
-        for n in range (100):
-            mujoco.mj_step(self.model, self.data)
-            print(" ")
-            print("Step " + str(steps) + "times")
-            print(" ")
-            if self._check_collision():
-                collided = True
-                break        
-            # self.render()
-            steps += 1
-        return collided
     
     def _check_collision(self):
-        if self.data.ncon is not None:
-            for i in range(self.data.ncon):
+        ncon = self.data.ncon
+        if ncon is not None:
+            for i in range(ncon):
                 contact = self.data.contact[i]
                 g1 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom1)
                 g2 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom2)
@@ -497,16 +498,6 @@ class MultiAgentSAR(MultiAgentEnv):
         
         return agent_map
 
-    # ================= Render / Close =================
-    # def render(self):
-    #     if not hasattr(self, "viewer") or self.viewer is None:
-    #         try:
-    #             self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
-    #         except RuntimeError:
-    #                     pass
-    #     if self.viewer is not None:
-    #         self.viewer.sync()
-    
     def render(self):
         if not self.render_enabled:
             return
@@ -520,23 +511,6 @@ class MultiAgentSAR(MultiAgentEnv):
         except Exception:
             self.render_enabled = False
             self.viewer = None
-
-    # def render(self):
-    #     if not hasattr(self, "viewer") or self.viewer is None:
-    #         try:
-    #             self.viewer = mujoco_viewer.MujocoViewer(self.model, self.data)
-    #         except Exception as e:
-    #             # No GUI / headless: just skip rendering
-    #             self.viewer = None
-    #             return
-    #     # draw current frame
-    #     self.viewer.render()
-
-
-    # def close(self):
-    #     if hasattr(self, "viewer") and self.viewer is not None:
-    #         self.viewer.close()
-    #         self.viewer = None
 
     def close(self):
         if hasattr(self, "viewer") and self.viewer is not None:

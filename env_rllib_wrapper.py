@@ -5,15 +5,6 @@
 from ray.tune.registry import register_env
 from env.mappo_mujoco_env import MultiAgentSAR
 
-# def make_env_creator(default_csv=None, default_xmls=None):
-#     def _creator(cfg):
-#         env = MultiAgentSAR(
-#             csv_log_path=cfg.get("csv_log_path", default_csv),
-#             xml_paths=cfg.get("xml_paths", default_xmls),
-#         )
-#         return env.with_agent_groups({"agent_group": ["agent_1","agent_2"]})
-#     return _creator
-
 def make_env_creator(default_csv=None, default_xmls=None):
     def _creator(cfg):
         # print(
