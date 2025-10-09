@@ -7,23 +7,33 @@ from gymnasium.spaces import Dict as DictSpace, Box
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from ray.rllib.policy.sample_batch import SampleBatch
 
+# class DebugBatches(DefaultCallbacks):
+#     def on_learn_on_batch_begin(self, *, policy, train_batch, **kwargs):
+#         # train_batch is for a single policy (shared policy).
+#         obs = train_batch[SampleBatch.OBS]          # Dict: {"obs": ..., "state": ...}
+#         agent_idx = train_batch["agent_index"]     # Per-row agent indices in this batch
+
+#         local = obs["obs"]     # shape [B, 12]
+#         global_ = obs["state"] # shape [B, 24]
+
+#         # Print a few rows with which agent they came from.
+#         n = min(4, len(local))
+#         for i in range(n):
+#             print(f"[BATCH] row {i} agent_idx={int(agent_idx[i])} "
+#                   f"local[:4]={local[i][:4].tolist()} sum={float(local[i].sum()):.4f} "
+#                   f"global_sum={float(global_[i].sum()):.4f}")
+
+# Debug callback for reward!
 class DebugBatches(DefaultCallbacks):
     def on_learn_on_batch_begin(self, *, policy, train_batch, **kwargs):
-        # train_batch is for a single policy (shared policy).
-        obs = train_batch[SampleBatch.OBS]          # Dict: {"obs": ..., "state": ...}
-        agent_idx = train_batch["agent_index"]     # Per-row agent indices in this batch
-
-        local = obs["obs"]     # shape [B, 12]
-        global_ = obs["state"] # shape [B, 24]
-
-        # Print a few rows with which agent they came from.
-        n = min(4, len(local))
+        rewards   = train_batch[SampleBatch.REWARDS]
+        agent_idx = train_batch.get("agent_index", None)
+        agent_ids = train_batch.get("agent_id", None)
+        n = min(8, len(rewards))
+        print("\n[BATCH] --- sample rows ---")
         for i in range(n):
-            print(f"[BATCH] row {i} agent_idx={int(agent_idx[i])} "
-                  f"local[:4]={local[i][:4].tolist()} sum={float(local[i].sum()):.4f} "
-                  f"global_sum={float(global_[i].sum()):.4f}")
-
-
+            who = f"id={agent_ids[i]}" if agent_ids is not None else f"idx={int(agent_idx[i])}"
+            print(f"  row {i}: {who}  reward={float(rewards[i]):.3f}")
 def policy_mapping_fn(agent_id, *args, **kwargs):
     return "shared_policy"
 
@@ -39,7 +49,9 @@ if __name__ == "__main__":
     )
 
     OBS_DIM, N_AGENTS = 12, 2
-    GLOBAL_DIM = OBS_DIM * N_AGENTS
+    COVER_K = 4
+    COV_DIM = (20 // COVER_K) * (20 // COVER_K)  # 25
+    GLOBAL_DIM = OBS_DIM * N_AGENTS + COV_DIM
 
     dict_obs_space = DictSpace({
         "obs":   Box(-np.inf, np.inf, shape=(OBS_DIM,),    dtype=np.float32),
@@ -79,7 +91,7 @@ if __name__ == "__main__":
             },
             gamma=0.995, lr=3e-4, lambda_=0.95,
             train_batch_size=2048, minibatch_size=2048, num_epochs=10,
-            clip_param=0.2, vf_clip_param=100.0, entropy_coeff=0.0,
+            clip_param=0.2, vf_clip_param=100.0, entropy_coeff=0.001,
         )
         # train_batch_size=32768
         .callbacks(DebugBatches)

@@ -57,6 +57,19 @@ class MultiAgentSAR(MultiAgentEnv):
         # print(f"Loaded XML paths: {self.xml_paths}")
         # print(" ")
 
+        # coverage grid
+        self.grid_bounds = (-10.0, 10.0, -10.0, 10.0)  # xmin, xmax, ymin, ymax
+        self.cell_size = 1.0
+        xmin, xmax, ymin, ymax = self.grid_bounds
+        self.grid_W = int(np.ceil((xmax - xmin) / self.cell_size))
+        self.grid_H = int(np.ceil((ymax - ymin) / self.cell_size))
+        self.visited = np.zeros((self.grid_H, self.grid_W), dtype=np.uint8)
+        
+        # Add grid coverage to the critic
+        self.cover_k = 4  # try 2 or 4 then see difference; 4 → 5x5=25 dims
+        self.cov_dim = (self.grid_H // self.cover_k) * (self.grid_W // self.cover_k)
+         
+
         self.reach_tol = 0.01
         self.max_substeps_per_action = 50000 
 
@@ -122,15 +135,39 @@ class MultiAgentSAR(MultiAgentEnv):
         ray_directions = np.array(ray_directions, dtype=np.float64).reshape(-1)
         return ray_directions
     
+    # x,y to grid index ij
+    def _xy_to_ij(self, xy):
+        xmin, xmax, ymin, ymax = self.grid_bounds
+        x, y = float(xy[0]), float(xy[1])
+        j = int(np.floor((x - xmin) / self.cell_size))
+        i = int(np.floor((y - ymin) / self.cell_size))
+        if i < 0 or i >= self.grid_H or j < 0 or j >= self.grid_W:
+            return None
+        return i, j
+
+    def _mark_cell_of_point(self, xy):
+        ij = self._xy_to_ij(xy)
+        if ij is None:
+            return 0
+        i, j = ij
+        if self.visited[i, j] == 0:
+            self.visited[i, j] = 1
+            return 1
+        return 0
+
+
     def _setup_action_observation_spaces(self):
         self.max = MAX_ACTION        
         self.obs_dim = OBS_DIM
         self.act_dim = ACT_DIM
         self.global_dim = self.obs_dim * self.n_agents
         
+        # ADD: coverage embedding size
+        self.state_dim = self.global_dim + self.cov_dim
+
         self.observation_space = gym.spaces.Dict({
             "obs":   gym.spaces.Box(-np.inf, np.inf, shape=(self.obs_dim,),   dtype=np.float32),
-            "state": gym.spaces.Box(-np.inf, np.inf, shape=(self.global_dim,), dtype=np.float32),
+            "state": gym.spaces.Box(-np.inf, np.inf, shape=(self.state_dim,), dtype=np.float32),
         })
       
         # One agent's action space: (2,)
@@ -144,6 +181,7 @@ class MultiAgentSAR(MultiAgentEnv):
         self._step_count = 0
         self.position_history.clear()
         self.found_targets = set()
+        self.visited.fill(0)
         # Check if it need to be reset every step
         self.last_ray_hits = {name: set() for name in self.agent_names}
 
@@ -359,7 +397,9 @@ class MultiAgentSAR(MultiAgentEnv):
         self._reset_episode_state()
         
         local_obs = self._get_local_obs_dict() # actor input
-        gs = self._get_global_state(local_obs).astype(np.float32)
+        gs_base = self._get_global_state(local_obs).astype(np.float32)
+        cov = self._coverage_embedding()
+        gs = np.concatenate([gs_base, cov], axis=0)
 
         obs = {name: {"obs": local_obs[name], "state": gs} for name in self.agent_names}
         info = {name: {} for name in self.agent_names}
@@ -382,10 +422,12 @@ class MultiAgentSAR(MultiAgentEnv):
         reached = {name: False for name in self.agent_names}
         collided = False
         substep = 0
-
+        
+        per_agent_new_cells = {name: 0 for name in self.agent_names}
         while True:
             mujoco.mj_step(self.model, self.data)
             substep += 1
+
             collided = self._check_collision()
             # print(" ")
             # print(f"Substeps {sub}")
@@ -397,6 +439,9 @@ class MultiAgentSAR(MultiAgentEnv):
                     bid = self.agent_map[name]["body_id"]
                     cur = self.data.xpos[bid][:2]
                     tgt = self._step_targets[name]
+                    # NEW: mark grid cell (counts only first time a cell is visited)
+                    per_agent_new_cells[name] += self._mark_cell_of_point(cur)
+                    
                     if np.linalg.norm(cur - tgt) <= self.reach_tol:
                         reached[name] = True
                         # print(f"Agent {name} tgt is {tgt}, cur is {cur}")
@@ -413,27 +458,38 @@ class MultiAgentSAR(MultiAgentEnv):
         self.render()
         
         local_obs = self._get_local_obs_dict()
-        gs = self._get_global_state(local_obs).astype(np.float32)
+        gs_base = self._get_global_state(local_obs).astype(np.float32)
+        cov = self._coverage_embedding()                          # (cov_dim,)
+        gs = np.concatenate([gs_base, cov], axis=0)  
         obs = {name: {"obs": local_obs[name], "state": gs} for name in self.agent_names} 
 
         #To be implement
         team_rew, found_all_target = self._compute_reward_done()
-        
+
         if found_all_target:
             done = True
+            team_rew += 200
         else:
             done = bool(collided)
         
-        info = {name: {} for name in self.agent_names}
+        
+
+        reward = {}
+        for name in self.agent_names:
+            r = 0.0
+            r += per_agent_new_cells[name] * 0.5     # per-agent coverage bonus
+            r += team_rew / self.n_agents            # share team reward evenly
+            if collided:
+                r += -2.0                            # optional collision penalty
+            reward[name] = float(r)
+        
+        
         self._step_count += 1
-
-        reward = {name: float(team_rew) for name in self.agent_names}
-
         terminated = {name: bool(done) for name in self.agent_names}
         truncated = {name: (self._step_count >= self.max_steps) for name in self.agent_names}
         terminated["__all__"] = done
         truncated["__all__"] = (self._step_count >= self.max_steps)
-
+        info = {name: {} for name in self.agent_names}
         # For debug
         for name in self.agent_names:
             bid = self.agent_map[name]["body_id"]
@@ -466,6 +522,17 @@ class MultiAgentSAR(MultiAgentEnv):
                     return True
         return False
     
+    # ---- helper: max-pool and flatten the visited grid ----
+    def _coverage_embedding(self):
+        H, W = self.visited.shape
+        k = self.cover_k
+        H2, W2 = H // k, W // k
+        trimmed = self.visited[:H2*k, :W2*k]
+        # max-pool over k×k blocks (any cell visited in the block → 1)
+        pooled = trimmed.reshape(H2, k, W2, k).max(axis=(1, 3))
+        emb = pooled.astype(np.float32).reshape(-1)   # shape = (H2*W2,)
+        return emb  # values in {0.0, 1.0}
+
     def _build_agent_map(self):
         agent_map = {}
 
