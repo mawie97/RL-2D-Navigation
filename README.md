@@ -8,7 +8,7 @@ Training uses **Ray’s RLlib** library with a centralized value function (a.k.a
 
 ---
 
-## Directory structure
+## Directory structure (Need to be updated)
 ```
 Thesis_Project/
 ├── env/
