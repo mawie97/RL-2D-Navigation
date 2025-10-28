@@ -19,9 +19,7 @@ class TorchCCModel(TorchModelV2, nn.Module):
     """
     def __init__(self, obs_space, action_space, num_outputs, model_config, name, **kwargs):
         TorchModelV2.__init__(self, obs_space, action_space, num_outputs, model_config, name)
-        nn.Module.__init__(self) 
-
-
+        nn.Module.__init__(self)
 
         # Determine dims and whether we expect a Dict or a flat Box:
         self._expects_dict = isinstance(obs_space, DictSpace)
@@ -53,34 +51,22 @@ class TorchCCModel(TorchModelV2, nn.Module):
             raise ValueError(f"Unsupported obs_space: {obs_space}")
 
         self.act_dim = int(np.prod(action_space.shape))
+        # if num_outputs != self.act_dim:
+        #     # Not fatal, but helpful to know.
+        #     print(f"[TorchCCModel] Warning: num_outputs({num_outputs}) != action_dim({self.act_dim}).")
 
-
-        self.grid_size = 5  # 5x5 grid
-        self.grid_dim = self.grid_size * self.grid_size  # = 25
-
-        # Separate global state into: [agent features | grid]
-        self.flat_global_dim = self.global_dim - self.grid_dim
-
-        # CNN encoder for 5x5 coverage grid (1 input channel)
-        self.grid_encoder = nn.Sequential(
-            nn.Conv2d(1, 8, kernel_size=3, padding=1), nn.ReLU(),  # [B, 8, 5, 5]
-            nn.Flatten(),                                          # [B, 200]
-            nn.Linear(200, 64), nn.ReLU()                          # [B, 64]
-        )
-
-        # Updated critic
-        self.critic = nn.Sequential(
-            nn.Linear(self.flat_global_dim + 64, 256), nn.ReLU(),
-            nn.Linear(256, 256), nn.ReLU(),
-            nn.Linear(256, 1)
-        )
         # Actor (local obs)
         self.actor = nn.Sequential(
             nn.Linear(self.local_dim, 128), nn.ReLU(),
             nn.Linear(128, 128), nn.ReLU(),
             nn.Linear(128, num_outputs)
         )
-
+        # Critic (global state)
+        self.critic = nn.Sequential(
+            nn.Linear(self.global_dim, 256), nn.ReLU(),
+            nn.Linear(256, 256), nn.ReLU(),
+            nn.Linear(256, 1)
+        )
         self._vf_in = None
         self._printed_once = False
 
@@ -112,17 +98,7 @@ class TorchCCModel(TorchModelV2, nn.Module):
                 self._actor_prints += 1
 
 
-        # Split global into [non-grid, grid]
-        flat_global = o_global[..., :self.flat_global_dim]      # [B, global_flat]
-        grid_flat   = o_global[..., self.flat_global_dim:]      # [B, 25]
-        grid_image  = grid_flat.view(-1, 1, 5, 5)                # [B, 1, 5, 5]
-        grid_feat   = self.grid_encoder(grid_image)             # [B, 64]
-
-        # Cache critic input
-        self._vf_in = torch.cat([flat_global, grid_feat], dim=-1)
-
-
-
+        self._vf_in = o_global
         logits = self.actor(o_local)
         return logits, state
 

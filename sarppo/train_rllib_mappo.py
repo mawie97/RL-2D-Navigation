@@ -12,7 +12,6 @@ from ray import tune
 from ray.tune import RunConfig, CheckpointConfig
 from pathlib import Path
 from ray import tune
-
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from ray.rllib.policy.sample_batch import SampleBatch
 import numpy as np
@@ -100,9 +99,8 @@ if __name__ == "__main__":
         xmls=xmls
     )
 
-    OBS_DIM, N_AGENTS = 12, 2
-    COVER_K = 4
-    COV_DIM = (20 // COVER_K) * (20 // COVER_K)  # 25
+    OBS_DIM, N_AGENTS = 16, 2
+    COV_DIM = 25
     GLOBAL_DIM = OBS_DIM * N_AGENTS + COV_DIM
 
     dict_obs_space = DictSpace({

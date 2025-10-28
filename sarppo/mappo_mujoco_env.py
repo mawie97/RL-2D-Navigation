@@ -6,7 +6,7 @@
 import csv
 import random
 from collections import deque
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple
 import numpy as np
 import gymnasium as gym
 import mujoco
@@ -20,7 +20,7 @@ CUTOFF_VALUE = 1 #sensor cutoff value - sensor range
 MAX_STEPS = 500 #terminate episode if max_steps is reached
 MAX_ACTION = 0.1 #action space
 AGENT_PREFIX = "agent_"
-OBS_DIM = 12
+OBS_DIM = 16
 ACT_DIM = 2
 N_RAYS = 12
 RAY_LENGTH = 1.5
@@ -188,10 +188,6 @@ class MultiAgentSAR(MultiAgentEnv):
 
         obs_low  = np.zeros((self.obs_dim,), dtype=f32)
         obs_high = np.full((self.obs_dim,), cutoff, dtype=f32)
-        # self.observation_space = gym.spaces.Dict({
-        #     "obs":   gym.spaces.Box(low=f32(-np.inf), high=f32(np.inf), shape=(self.obs_dim,),   dtype=f32),
-        #     "state": gym.spaces.Box(low=f32(-np.inf), high=f32(np.inf), shape=(self.state_dim,), dtype=f32),
-        # })
 
         self.observation_space = gym.spaces.Dict({
             "obs":   gym.spaces.Box(low=obs_low, high=obs_high, dtype=f32),
@@ -228,9 +224,20 @@ class MultiAgentSAR(MultiAgentEnv):
         return obs
     
     def _get_agent_obs(self, agent_name):
-        raw_readings = self._update_rays(agent_name)
+        raw_readings, hit_target, hit_obstacle = self._update_rays(agent_name)
         ray_surface_distances = self._adjust_raw_rays(raw_readings, NOISE_STD)
-        obs = np.asarray([*ray_surface_distances ], dtype=np.float32)
+        
+        # Relative position to other agent
+        my_pos = self.data.xpos[self.agent_map[agent_name]["body_id"]][:2]
+        others = [n for n in self.agent_names if n != agent_name]
+        other_pos = self.data.xpos[self.agent_map[others[0]]["body_id"]][:2]
+        rel_pos = other_pos - my_pos # 2D vector
+        
+        # Hit indicators: 1.0 if hit, 0.0 if not
+        target_indicator = 1.0 if hit_target else 0.0
+        obstacle_indicator = 1.0 if hit_obstacle else 0.0
+
+        obs = np.asarray([*ray_surface_distances, *rel_pos,target_indicator, obstacle_indicator], dtype=np.float32)
         return obs
 
     def _get_global_state(self, obs_dict: Dict[str, np.ndarray] | None = None) -> np.ndarray:
@@ -321,25 +328,18 @@ class MultiAgentSAR(MultiAgentEnv):
 
         return False   
     
-    def _mark_cell_of_point(self, xy):
-        ij = self._xy_to_ij(xy)
-        if ij is None:
-            return 0
-        i, j = ij
-        if self.visited[i, j] == 0:
-            self.visited[i, j] = 1
-            return 1
-        return 0
-    
-    # x,y to grid index ij
-    def _xy_to_ij(self, xy):
+    def _mark_cells_within_range(self, agent_xy):
+        newly_marked = 0
         xmin, xmax, ymin, ymax = self.grid_bounds
-        x, y = float(xy[0]), float(xy[1])
-        j = int(np.floor((x - xmin) / self.cell_size))
-        i = int(np.floor((y - ymin) / self.cell_size))
-        if i < 0 or i >= self.grid_H or j < 0 or j >= self.grid_W:
-            return None
-        return i, j
+        for i in range(self.grid_H):
+            for j in range(self.grid_W):
+                cx = xmin + (j + 0.5) * self.cell_size
+                cy = ymin + (i + 0.5) * self.cell_size
+                dist = np.linalg.norm(np.array([cx, cy]) - agent_xy)
+                if dist <= self.ray_length and self.visited[i, j] == 0:
+                    self.visited[i, j] = 1
+                    newly_marked += 1
+        return newly_marked
 
     def _compute_reward_done(self) -> Tuple[float, bool]:
         """
@@ -365,7 +365,13 @@ class MultiAgentSAR(MultiAgentEnv):
         else:
             done = False
         return float(team_rew), bool(done)
-
+    
+    def _compute_proximity_penalty(self) -> float:
+        pos = [self.data.xpos[self.agent_map[n]["body_id"]][:2] for n in self.agent_names]
+        dist = np.linalg.norm(pos[0] - pos[1])
+        if dist < 0.4: # Change this thredhold later
+            return -1.0 * (0.4 - dist) # Linear penalty as distance gets smaller
+        return 0.0
 
 # need to be adjusted
     # ---- helper: max-pool and flatten the visited grid ----
@@ -380,31 +386,12 @@ class MultiAgentSAR(MultiAgentEnv):
         return emb  # values in {0.0, 1.0}
 
 
-    # Sensor range 1.41, the distance between agent and the center of the cell <= 1.41 will mark as visited
-    def update_visited_local(agent_pos, visited, grid_origin, cell_size):
-        agent_x, agent_y = agent_pos[:2]
-        agent_j = int((agent_x - grid_origin[0]) // cell_size)
-        agent_i = int((agent_y - grid_origin[1]) // cell_size)
-        H, W = visited.shape
-
-        for di in [-1, 0, 1]:
-            for dj in [-1, 0, 1]:
-                ni, nj = agent_i + di, agent_j + dj
-                if 0 <= ni < H and 0 <= nj < W:
-                    cell_center = np.array([
-                        grid_origin[0] + (nj + 0.5) * cell_size,
-                        grid_origin[1] + (ni + 0.5) * cell_size
-                    ])
-                    dist = np.linalg.norm([agent_x - cell_center[0], agent_y - cell_center[1]])
-                    if dist <= 1.41:
-                        visited[ni, nj] = 1
-
-
 #  ================= Helper function related to sensor rays  =================
+    
     def _update_rays(self, agent_name: str):
         agent_body_id = self.agent_map[agent_name]["body_id"]
         origin = self.data.xpos[agent_body_id][:3]  # Use current agent position
-         
+
         # Clear previous outputs (robustness)
         self.ray_geomid_out.fill(-1)
         self.ray_dist_out.fill(-1.0)
@@ -424,6 +411,9 @@ class MultiAgentSAR(MultiAgentEnv):
         )
 
         hits = set()
+        
+        hit_target = False
+        hit_obstacle = True
 
         for gid in self.ray_geomid_out:
             # Check if the gid is actually return -1 if no hit at all
@@ -431,9 +421,12 @@ class MultiAgentSAR(MultiAgentEnv):
                 gname = self._geom_name(gid)
                 if "target" in gname:
                     hits.add(int(gid))
+                    hit_target = True
+                elif "obstacle" in gname:
+                    hit_obstacle = True    
         self.last_ray_hits[agent_name] = hits
 
-        return self.ray_dist_out
+        return self.ray_dist_out, hit_target, hit_obstacle
     
     def _geom_name(self, geom_id: int) -> str:
         if geom_id < 0:
@@ -547,8 +540,8 @@ class MultiAgentSAR(MultiAgentEnv):
                     bid = self.agent_map[name]["body_id"]
                     cur = self.data.xpos[bid][:2]
                     tgt = self._step_targets[name]
-                    # NEW: mark grid cell (counts only first time a cell is visited)
-                    per_agent_new_cells[name] += self._mark_cell_of_point(cur)
+                    # mark grid cell as visited (counts only first time a cell is visited)
+                    per_agent_new_cells[name] += self._mark_cells_within_range(cur)
                     
                     if np.linalg.norm(cur - tgt) <= self.reach_tol:
                         reached[name] = True
@@ -574,13 +567,15 @@ class MultiAgentSAR(MultiAgentEnv):
         obs     = self._pack_obs(local_obs, gs)
         #To be implement
         team_rew, found_all_target = self._compute_reward_done()
-
+        proximity_penalty = self._compute_proximity_penalty()
         reward = {}
+
         for name in self.agent_names:
             r = 0.0
             r += per_agent_new_cells[name] * 0.5 # per-agent coverage bonus
             r += team_rew / self.n_agents        # share team reward evenly
             r += -0.01                           # time penalty    
+            r += proximity_penalty               # agent distance penalty                      
             if collided:
                 r += -2.0                        # collision penalty
             reward[name] = float(r)
