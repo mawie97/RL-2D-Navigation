@@ -11,9 +11,26 @@ import datetime as dt
 from ray import tune
 from ray.tune import RunConfig, CheckpointConfig
 from pathlib import Path
+from ray import tune
+
+from ray.rllib.algorithms.callbacks import DefaultCallbacks
+from ray.rllib.policy.sample_batch import SampleBatch
+import numpy as np
+
+
+class PeekResultKeys(DefaultCallbacks):
+    def on_trial_result(self, iteration, trials, trial, result, **info):
+        ks = [k for k in result if k.startswith("env_runners/")]
+        print("[Peek] iter:", result.get("training_iteration"),
+              "| env_runners keys:", ks,
+              "| eps_this_iter via hist:", len(result.get("env_runners/hist_stats/episode_lengths", [])))
 
 class MyCallbacks(DefaultCallbacks):
-    # === your DebugBatches ===
+    def __init__(self):
+        super().__init__()
+        self.total_eps = 0          # cumulative episodes we expose
+        self._prev_num_eps = 0      # last seen cumulative from RLlib
+
     def on_learn_on_batch_begin(self, *, policy, train_batch, **kwargs):
         rewards   = train_batch[SampleBatch.REWARDS]
         agent_idx = train_batch.get("agent_index", None)
@@ -24,18 +41,46 @@ class MyCallbacks(DefaultCallbacks):
             who = f"id={agent_ids[i]}" if agent_ids is not None else f"idx={int(agent_idx[i])}"
             print(f"  row {i}: {who}  reward={float(rewards[i]):.3f}")
 
-    # === your EpisodeEndCB ===
-    def on_episode_end(self, *, episode, **kwargs):
-        reason = None
-        for aid in episode.get_agents():
-            info = episode.last_info_for(aid) or {}
-            if "done_reason" in info:
-                reason = info["done_reason"]
-                break
-        episode.custom_metrics["ep_len"] = episode.length
-        episode.custom_metrics["ep_return"] = episode.total_reward
-        if reason:
-            episode.custom_metrics[f"done_{reason}"] = 1.0
+    # Do NOT accumulate in on_episode_end (runs on workers)
+
+    def on_train_result(self, *, algorithm, result, **kwargs):
+        # Prefer RLlib's per-iter metric if available
+        eps_this = result.get("env_runners/episodes_this_iter", None)
+
+        # Fallback: compute per-iter episodes by diffing the cumulative metric
+        if not eps_this:
+            cum = result.get("env_runners/num_episodes", 0) or 0
+            try:
+                cum = int(cum)
+            except Exception:
+                cum = int(np.asarray(cum).item())
+            eps_this = max(0, cum - self._prev_num_eps)
+            self._prev_num_eps = cum
+
+        try:
+            eps_this = int(eps_this)
+        except Exception:
+            eps_this = int(np.asarray(eps_this).item())
+
+        self.total_eps += eps_this
+        result["cumulative_episodes"] = self.total_eps
+
+        print(f"[train_result] iter={result.get('training_iteration')} "
+              f"eps_this_iter(computed)={eps_this} "
+              f"num_episodes(cum)={result.get('env_runners/num_episodes')} "
+              f"cumulative_episodes={self.total_eps}")
+
+TARGET_EPS = 20
+
+def stop_by_episodes(trial_id, result):
+    total = (result.get("env_runners/num_episodes")
+             or result.get("episodes_total")
+             or 0)
+    try:
+        return int(total) >= TARGET_EPS
+    except Exception:
+        return False  # be defensive if metric is weird for the very first iter
+
 
 def policy_mapping_fn(agent_id, *args, **kwargs):
     return "shared_policy"
@@ -115,8 +160,10 @@ if __name__ == "__main__":
     tuner = tune.Tuner(
         "PPO",
         run_config=RunConfig(
-            stop={"env_runners/num_episodes": 5},                        # <-- stop exactly at 200 env episodes
-            storage_path=str(results_dir),                       # keep under your project
+            stop={"episodes_total": 5},
+            # stop={"training_iteration": 1},
+            # stop={"cumulative_episodes": 3},                
+            storage_path=str(results_dir),                     
             name="sar_ppo_run",
             checkpoint_config=CheckpointConfig(
                 checkpoint_at_end=True,                          # always save at the end
@@ -128,6 +175,17 @@ if __name__ == "__main__":
     )
 
     result_grid = tuner.fit()
+
+    for r in result_grid:
+        print({
+            "iter": r.metrics.get("training_iteration"),
+            "cum_eps": r.metrics.get("env_runners/num_episodes"),
+            "eps_this_iter": r.metrics.get("env_runners/episodes_this_iter"),
+            "timesteps_total": r.metrics.get("timesteps_total"),
+            "time_s": r.metrics.get("time_total_s"),
+        })
     best = result_grid.get_best_result(metric="episode_reward_mean", mode="max")
-    print("Best mean reward:", best.metrics.get("episode_reward_mean"))
-    print("Best checkpoint:", best.checkpoint)
+    # print("Best mean reward:", best.metrics.get("episode_reward_mean"))
+    # print("Best checkpoint:", best.checkpoint)
+
+    

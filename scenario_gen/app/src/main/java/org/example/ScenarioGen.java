@@ -30,7 +30,7 @@ public class ScenarioGen {
         int W = 20;            // grid width  (x in [0..W-1])
         int N_AGENTS = 2;
         int N_TARGETS = 3;
-        int N_OBS = 20;        // number of obstacle cells
+        int N_OBS = 30;        // number of obstacle cells
         int MIN_MANHATTAN = 5; // min Manhattan distance agent <-> target
         Long SEED = (long) 1234;
         boolean requireAtLeastOneFreeRingAroundAgents = true; // optional safety

@@ -61,7 +61,7 @@ public class DrawGrid extends JPanel {
             g.fillOval(cx - cell/3, cy - cell/3, 2*cell/3, 2*cell/3);
             g.setColor(Color.BLACK);
             g.drawOval(cx - cell/3, cy - cell/3, 2*cell/3, 2*cell/3);
-            String lbl = String.valueOf(i);
+            String lbl = "T"+i;
             FontMetrics fm = g.getFontMetrics();
             g.drawString(lbl, cx - fm.stringWidth(lbl)/2, cy + fm.getAscent()/2 - 2);
         }

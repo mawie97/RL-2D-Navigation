@@ -58,7 +58,7 @@ class MultiAgentSAR(MultiAgentEnv):
         # print(" ")
 
         # coverage grid
-        self.grid_bounds = (-10.0, 10.0, -10.0, 10.0)  # xmin, xmax, ymin, ymax
+        self.grid_bounds = (-2.5, 2.5, -2.5, 2.5)  # xmin, xmax, ymin, ymax
         self.cell_size = 1.0
         xmin, xmax, ymin, ymax = self.grid_bounds
         self.grid_W = int(np.ceil((xmax - xmin) / self.cell_size))
@@ -66,7 +66,7 @@ class MultiAgentSAR(MultiAgentEnv):
         self.visited = np.zeros((self.grid_H, self.grid_W), dtype=np.uint8)
         
         # Add grid coverage to the critic
-        self.cover_k = 4  # try 2 or 4 then see difference; 4 → 5x5=25 dims
+        self.cover_k = 1  # No cover can be deleted later
         self.cov_dim = (self.grid_H // self.cover_k) * (self.grid_W // self.cover_k)
          
 
@@ -305,8 +305,8 @@ class MultiAgentSAR(MultiAgentEnv):
         
         if len(self.found_targets) == self.target_nr:
             done = True
-            print(" ")
-            print("All targets has been found, searching is done!")
+            # print(" ")
+            # print("All targets has been found, searching is done!")
         else:
             done = False
         return float(team_rew), bool(done)
@@ -404,6 +404,26 @@ class MultiAgentSAR(MultiAgentEnv):
                 raise ValueError(f"global state wrong shape {st.shape}")
             obs_out[name] = {"obs": lo, "state": st}
         return obs_out
+    
+    # Sensor range 1.41, the distance between agent and the center of the cell <= 1.41 will mark as visited
+    def update_visited_local(agent_pos, visited, grid_origin, cell_size):
+        agent_x, agent_y = agent_pos[:2]
+        agent_j = int((agent_x - grid_origin[0]) // cell_size)
+        agent_i = int((agent_y - grid_origin[1]) // cell_size)
+        H, W = visited.shape
+
+        for di in [-1, 0, 1]:
+            for dj in [-1, 0, 1]:
+                ni, nj = agent_i + di, agent_j + dj
+                if 0 <= ni < H and 0 <= nj < W:
+                    cell_center = np.array([
+                        grid_origin[0] + (nj + 0.5) * cell_size,
+                        grid_origin[1] + (ni + 0.5) * cell_size
+                    ])
+                    dist = np.linalg.norm([agent_x - cell_center[0], agent_y - cell_center[1]])
+                    if dist <= 1.41:
+                        visited[ni, nj] = 1
+
 
     # ================= Gym API =================
     def seed(self, seed=None):
@@ -438,25 +458,16 @@ class MultiAgentSAR(MultiAgentEnv):
         # obs = {name: {"obs": local_obs[name], "state": gs} for name in self.agent_names}
         obs = self._pack_obs(local_obs, gs)
         info = {name: {} for name in self.agent_names}
-        print("Spaces dtypes:",
-        self.observation_space["obs"].dtype,
-        self.observation_space["state"].dtype,
-        " | action dtype:", self.action_space.dtype)
+        # print("Spaces dtypes:",
+        #     self.observation_space["obs"].dtype,
+        #     self.observation_space["state"].dtype,
+        #     " | action dtype:", self.action_space.dtype)
 
-        if self.episode_count == 1:
-            one = next(iter(obs.values()))
-            print("First reset dtypes:",
-                one["obs"].dtype, one["state"].dtype,
-                "shapes:", one["obs"].shape, one["state"].shape)
-
-        # Debug
-        # if self.debug_dump and not self._printed_reset:
-        #     np.set_printoptions(precision=4, suppress=True)
-        #     for name in self.agent_names:
-        #         print(f" [ENV_RESET_Agent] {name} local={np.array2string(local_obs[name], separator=', ')}  sum={local_obs[name].sum():.6f}")
-        #     print(f" [ENV_RESET_Global] global={np.array2string(gs, separator=', ')}  sum={gs.sum():.6f}")
-        #     print(" ")
-        #     self._printed_reset = True
+        # if self.episode_count == 1:
+        #     one = next(iter(obs.values()))
+        #     print("First reset dtypes:",
+        #         one["obs"].dtype, one["state"].dtype,
+        #         "shapes:", one["obs"].shape, one["state"].shape)
 
         return obs, info
     
@@ -517,7 +528,8 @@ class MultiAgentSAR(MultiAgentEnv):
         for name in self.agent_names:
             r = 0.0
             r += per_agent_new_cells[name] * 0.5     # per-agent coverage bonus
-            r += team_rew / self.n_agents            # share team reward evenly
+            r += team_rew / self.n_agents    # share team reward evenly
+            r += -0.01   # time penalty    
             if collided:
                 r += -2.0                            # optional collision penalty
             reward[name] = float(r)
@@ -543,7 +555,7 @@ class MultiAgentSAR(MultiAgentEnv):
             truncated = {name: True for name in self.agent_names}
         if episode_done or time_up:
             print(f"[EP END] steps={self._step_count} done={episode_done} time_up={time_up}")
-        # __all__ keys (required!)
+        
         terminated["__all__"] = any(terminated.values())
         truncated["__all__"]  = time_up
 
@@ -561,11 +573,9 @@ class MultiAgentSAR(MultiAgentEnv):
                 g1 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom1)
                 g2 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom2)
                 if ("agent_" in g1) or ("agent_" in g2):
-                    print(f"{g1} collide with {g2}")
+                    # print(f"{g1} collide with {g2}")
                     return True
 
-                # if ("agent_" in g1 and "obstacle_" in g2) or ("agent_" in g2 and "obstacle_" in g1):
-                #     return True
         return False
     
     # ---- helper: max-pool and flatten the visited grid ----
