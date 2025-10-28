@@ -16,10 +16,9 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 SWITCH_EVERY = 10
 POSITION_HISTORY_LEN = 20
-CUTOFF_VALUE = 1
-MAX_DISTANCE = 50.0
-MAX_STEPS = 1000
-MAX_ACTION = 0.1
+CUTOFF_VALUE = 1 #sensor cutoff value - sensor range
+MAX_STEPS = 500 #terminate episode if max_steps is reached
+MAX_ACTION = 0.1 #action space
 AGENT_PREFIX = "agent_"
 OBS_DIM = 12
 ACT_DIM = 2
@@ -27,6 +26,7 @@ N_RAYS = 12
 RAY_LENGTH = 1.5
 NOISE_STD = 0.00
 TARGET_NR = 3
+GRID_BOUNDS = (-2.5, 2.5, -2.5, 2.5) # grid representation bounds
 
 class MultiAgentSAR(MultiAgentEnv):
     """
@@ -51,29 +51,26 @@ class MultiAgentSAR(MultiAgentEnv):
         self.position_history = deque(maxlen=POSITION_HISTORY_LEN)
         
         self.cutoff_value = CUTOFF_VALUE
-        self.max_distance = MAX_DISTANCE
         self.max_steps = MAX_STEPS
         self.csv_log_path = csv_log_path
         # print(f"Loaded XML paths: {self.xml_paths}")
         # print(" ")
 
         # coverage grid
-        self.grid_bounds = (-2.5, 2.5, -2.5, 2.5)  # xmin, xmax, ymin, ymax
+        self.grid_bounds = GRID_BOUNDS
         self.cell_size = 1.0
-        xmin, xmax, ymin, ymax = self.grid_bounds
+        xmin, xmax, ymin, ymax = GRID_BOUNDS
         self.grid_W = int(np.ceil((xmax - xmin) / self.cell_size))
         self.grid_H = int(np.ceil((ymax - ymin) / self.cell_size))
         self.visited = np.zeros((self.grid_H, self.grid_W), dtype=np.uint8)
         
         # Add grid coverage to the critic
-        self.cover_k = 1  # No cover can be deleted later
-        self.cov_dim = (self.grid_H // self.cover_k) * (self.grid_W // self.cover_k)
+        self.cov_dim = self.grid_H * self.grid_W
          
-
-        self.reach_tol = 0.01
+        self.reach_tol = 0.001 #reach tolerance if the agent reah the world target
         self.max_substeps_per_action = 50000 
 
-        #This is used to save the world target for each agent
+        #This is used to save the world target for each agent at each timestep
         self._step_targets = {}
         
         self._load_model_and_setup(self.current_xml_index)
@@ -93,6 +90,8 @@ class MultiAgentSAR(MultiAgentEnv):
             self.log_writer = csv.writer(self.log_file_handle)
             # self.log_writer.writerow(['Step', 'pre_x', 'pre_y', 'current_x', 'current_y', 'target_x','target_y', 'delta_x', 'delta_y', 'pre_distance','current_distance','dist_value','RE: dis_change', 'RE: distance', 'RE: obstacle_avoidance', 'Total: reward' , 'Status'])
             self.log_writer.writerow(['Episode', 'Status'])
+    
+#  ================= Helper function used in the _init_  =================
 
     def _load_model_and_setup(self, index):
         self._load_model(index)
@@ -116,6 +115,38 @@ class MultiAgentSAR(MultiAgentEnv):
         self.agent_names = sorted(self.agent_names)
         self.n_agents = len(self.agent_names)
     
+    def _build_agent_map(self):
+        agent_map = {}
+
+        for agent in self.agent_names:
+            # Actuator indices
+            ids = []
+
+            # Agent's joints
+            for j in [1, 2]:
+                joint_name = f"{agent}_j{j}"
+                # print(joint_name)
+                j_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+                # print("AGENT MAP "+  act_name + str(a_id))
+                ids.append(j_id)
+            ids = np.array(ids, dtype=np.int32)
+
+            # Original body position (xy)
+            body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, agent)
+            pos = self.model.body_pos[body_id][:2].copy()  # only x, y
+
+            agent_map[agent] = {"ctrl_ids": ids, "init_pos": pos, "body_id": body_id}
+        
+        # print("=== Agent map ===")
+        
+        for name, m in agent_map.items():
+            ctrl_ids = m["ctrl_ids"].tolist()
+            init_pos = m["init_pos"].tolist()
+            body_id  = int(m["body_id"])
+            # print(f"{name}: body_id={body_id}, ctrl_ids={ctrl_ids}, init_pos={init_pos}")
+        
+        return agent_map
+        
     def _setup_agents_ray_casting(self):
         self.n_rays = N_RAYS
         self.ray_length = RAY_LENGTH
@@ -135,27 +166,6 @@ class MultiAgentSAR(MultiAgentEnv):
         ray_directions = np.array(ray_directions, dtype=np.float64).reshape(-1)
         return ray_directions
     
-    # x,y to grid index ij
-    def _xy_to_ij(self, xy):
-        xmin, xmax, ymin, ymax = self.grid_bounds
-        x, y = float(xy[0]), float(xy[1])
-        j = int(np.floor((x - xmin) / self.cell_size))
-        i = int(np.floor((y - ymin) / self.cell_size))
-        if i < 0 or i >= self.grid_H or j < 0 or j >= self.grid_W:
-            return None
-        return i, j
-
-    def _mark_cell_of_point(self, xy):
-        ij = self._xy_to_ij(xy)
-        if ij is None:
-            return 0
-        i, j = ij
-        if self.visited[i, j] == 0:
-            self.visited[i, j] = 1
-            return 1
-        return 0
-
-
     def _setup_action_observation_spaces(self):
         f32 = np.float32
         cutoff = f32(self.cutoff_value)
@@ -193,6 +203,8 @@ class MultiAgentSAR(MultiAgentEnv):
         a_high = f32(self.max)
         self.action_space = gym.spaces.Box(low=a_low, high=a_high, shape=(self.act_dim,), dtype=f32)
 
+
+    #  ================= Helper function used in the reset()  =================
     def _switch_model(self):
         self.current_xml_index = (self.current_xml_index + 1) % self.num_xmls
         self._load_model_and_setup(self.current_xml_index)
@@ -204,19 +216,7 @@ class MultiAgentSAR(MultiAgentEnv):
         self.visited.fill(0)
         # Check if it need to be reset every step
         self.last_ray_hits = {name: set() for name in self.agent_names}
-
-    def _geom_name(self, geom_id: int) -> str:
-        if geom_id < 0:
-            return ""
-        name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
-        return name or ""
-
-    def _get_agent_obs(self, agent_name):
-        raw_readings = self._update_rays(agent_name)
-        ray_surface_distances = self._adjust_raw_rays(raw_readings, NOISE_STD)
-        obs = np.asarray([*ray_surface_distances ], dtype=np.float32)
-        return obs
-    
+ 
     def _get_local_obs_dict(self) -> dict[str, np.ndarray]:
         """
         Return local observations for all agents.
@@ -225,6 +225,12 @@ class MultiAgentSAR(MultiAgentEnv):
         """
         obs = {name: self._get_agent_obs(name) 
             for name in self.agent_names}
+        return obs
+    
+    def _get_agent_obs(self, agent_name):
+        raw_readings = self._update_rays(agent_name)
+        ray_surface_distances = self._adjust_raw_rays(raw_readings, NOISE_STD)
+        obs = np.asarray([*ray_surface_distances ], dtype=np.float32)
         return obs
 
     def _get_global_state(self, obs_dict: Dict[str, np.ndarray] | None = None) -> np.ndarray:
@@ -237,6 +243,23 @@ class MultiAgentSAR(MultiAgentEnv):
  
        global_state = np.concatenate([obs_dict[name] for name in self.agent_names], axis=0).astype(np.float32)
        return global_state
+
+    def _pack_obs(self, local_obs_dict: dict[str, np.ndarray], gs: np.ndarray):
+        # Ensure f32 and correct shapes
+        obs_out = {}
+        for name in self.agent_names:
+            lo = np.asarray(local_obs_dict[name], dtype=np.float32)
+            st = np.asarray(gs, dtype=np.float32)
+            # Optional guard rails (catch bugs early)
+            if lo.shape != (self.obs_dim,):
+                raise ValueError(f"{name} local obs has wrong shape {lo.shape}")
+            if st.shape != (self.state_dim,):
+                raise ValueError(f"global state wrong shape {st.shape}")
+            obs_out[name] = {"obs": lo, "state": st}
+        return obs_out
+    
+
+    #  ================= Helper function used in the step()  =================
 
     def _apply_actions_for_agents(self, action_dict: Dict[str, np.ndarray], frame_skip: int = 1):
         """
@@ -285,6 +308,38 @@ class MultiAgentSAR(MultiAgentEnv):
 
         return  joint_targets.astype(np.float32), target_world.astype(np.float32)
 
+    def _check_collision(self):
+        ncon = self.data.ncon
+        if ncon is not None:
+            for i in range(ncon):
+                contact = self.data.contact[i]
+                g1 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom1)
+                g2 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom2)
+                if ("agent_" in g1) or ("agent_" in g2):
+                    # print(f"{g1} collide with {g2}")
+                    return True
+
+        return False   
+    
+    def _mark_cell_of_point(self, xy):
+        ij = self._xy_to_ij(xy)
+        if ij is None:
+            return 0
+        i, j = ij
+        if self.visited[i, j] == 0:
+            self.visited[i, j] = 1
+            return 1
+        return 0
+    
+    # x,y to grid index ij
+    def _xy_to_ij(self, xy):
+        xmin, xmax, ymin, ymax = self.grid_bounds
+        x, y = float(xy[0]), float(xy[1])
+        j = int(np.floor((x - xmin) / self.cell_size))
+        i = int(np.floor((y - ymin) / self.cell_size))
+        if i < 0 or i >= self.grid_H or j < 0 or j >= self.grid_W:
+            return None
+        return i, j
 
     def _compute_reward_done(self) -> Tuple[float, bool]:
         """
@@ -312,6 +367,40 @@ class MultiAgentSAR(MultiAgentEnv):
         return float(team_rew), bool(done)
 
 
+# need to be adjusted
+    # ---- helper: max-pool and flatten the visited grid ----
+    def _coverage_embedding(self):
+        H, W = self.visited.shape
+        k = 1
+        H2, W2 = H // k, W // k
+        trimmed = self.visited[:H2*k, :W2*k]
+        # max-pool over k×k blocks (any cell visited in the block → 1)
+        pooled = trimmed.reshape(H2, k, W2, k).max(axis=(1, 3))
+        emb = pooled.astype(np.float32).reshape(-1)   # shape = (H2*W2,)
+        return emb  # values in {0.0, 1.0}
+
+
+    # Sensor range 1.41, the distance between agent and the center of the cell <= 1.41 will mark as visited
+    def update_visited_local(agent_pos, visited, grid_origin, cell_size):
+        agent_x, agent_y = agent_pos[:2]
+        agent_j = int((agent_x - grid_origin[0]) // cell_size)
+        agent_i = int((agent_y - grid_origin[1]) // cell_size)
+        H, W = visited.shape
+
+        for di in [-1, 0, 1]:
+            for dj in [-1, 0, 1]:
+                ni, nj = agent_i + di, agent_j + dj
+                if 0 <= ni < H and 0 <= nj < W:
+                    cell_center = np.array([
+                        grid_origin[0] + (nj + 0.5) * cell_size,
+                        grid_origin[1] + (ni + 0.5) * cell_size
+                    ])
+                    dist = np.linalg.norm([agent_x - cell_center[0], agent_y - cell_center[1]])
+                    if dist <= 1.41:
+                        visited[ni, nj] = 1
+
+
+#  ================= Helper function related to sensor rays  =================
     def _update_rays(self, agent_name: str):
         agent_body_id = self.agent_map[agent_name]["body_id"]
         origin = self.data.xpos[agent_body_id][:3]  # Use current agent position
@@ -319,7 +408,6 @@ class MultiAgentSAR(MultiAgentEnv):
         # Clear previous outputs (robustness)
         self.ray_geomid_out.fill(-1)
         self.ray_dist_out.fill(-1.0)
-
 
         mujoco.mj_multiRay(
             self.model,
@@ -346,6 +434,12 @@ class MultiAgentSAR(MultiAgentEnv):
         self.last_ray_hits[agent_name] = hits
 
         return self.ray_dist_out
+    
+    def _geom_name(self, geom_id: int) -> str:
+        if geom_id < 0:
+            return ""
+        name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
+        return name or ""
     
     def _adjust_raw_rays(self, raw_readings, noise_std):
         # raw_readings: np.array of length 12
@@ -391,39 +485,7 @@ class MultiAgentSAR(MultiAgentEnv):
         # print(f"Surface distance all {surface_distances}")
         # print(" ")
         return surface_distances
-    def _pack_obs(self, local_obs_dict: dict[str, np.ndarray], gs: np.ndarray):
-        # Ensure f32 and correct shapes
-        obs_out = {}
-        for name in self.agent_names:
-            lo = np.asarray(local_obs_dict[name], dtype=np.float32)
-            st = np.asarray(gs, dtype=np.float32)
-            # Optional guard rails (catch bugs early)
-            if lo.shape != (self.obs_dim,):
-                raise ValueError(f"{name} local obs has wrong shape {lo.shape}")
-            if st.shape != (self.state_dim,):
-                raise ValueError(f"global state wrong shape {st.shape}")
-            obs_out[name] = {"obs": lo, "state": st}
-        return obs_out
     
-    # Sensor range 1.41, the distance between agent and the center of the cell <= 1.41 will mark as visited
-    def update_visited_local(agent_pos, visited, grid_origin, cell_size):
-        agent_x, agent_y = agent_pos[:2]
-        agent_j = int((agent_x - grid_origin[0]) // cell_size)
-        agent_i = int((agent_y - grid_origin[1]) // cell_size)
-        H, W = visited.shape
-
-        for di in [-1, 0, 1]:
-            for dj in [-1, 0, 1]:
-                ni, nj = agent_i + di, agent_j + dj
-                if 0 <= ni < H and 0 <= nj < W:
-                    cell_center = np.array([
-                        grid_origin[0] + (nj + 0.5) * cell_size,
-                        grid_origin[1] + (ni + 0.5) * cell_size
-                    ])
-                    dist = np.linalg.norm([agent_x - cell_center[0], agent_y - cell_center[1]])
-                    if dist <= 1.41:
-                        visited[ni, nj] = 1
-
 
     # ================= Gym API =================
     def seed(self, seed=None):
@@ -455,19 +517,8 @@ class MultiAgentSAR(MultiAgentEnv):
         cov = self._coverage_embedding().astype(np.float32, copy=False)
         gs = np.concatenate([gs_base, cov], axis=0).astype(np.float32, copy=False)
 
-        # obs = {name: {"obs": local_obs[name], "state": gs} for name in self.agent_names}
         obs = self._pack_obs(local_obs, gs)
         info = {name: {} for name in self.agent_names}
-        # print("Spaces dtypes:",
-        #     self.observation_space["obs"].dtype,
-        #     self.observation_space["state"].dtype,
-        #     " | action dtype:", self.action_space.dtype)
-
-        # if self.episode_count == 1:
-        #     one = next(iter(obs.values()))
-        #     print("First reset dtypes:",
-        #         one["obs"].dtype, one["state"].dtype,
-        #         "shapes:", one["obs"].shape, one["state"].shape)
 
         return obs, info
     
@@ -517,9 +568,9 @@ class MultiAgentSAR(MultiAgentEnv):
         local_obs = self._get_local_obs_dict()
         local_obs = {k: np.asarray(v, dtype=np.float32) for k, v in local_obs.items()}
         gs_base = self._get_global_state(local_obs).astype(np.float32, copy=False)
-        cov = self._coverage_embedding().astype(np.float32, copy=False)                         # (cov_dim,)
+        cov = self._coverage_embedding().astype(np.float32, copy=False)
         gs = np.concatenate([gs_base, cov], axis=0).astype(np.float32, copy=False)  
-        # obs = {name: {"obs": local_obs[name], "state": gs} for name in self.agent_names}
+      
         obs     = self._pack_obs(local_obs, gs)
         #To be implement
         team_rew, found_all_target = self._compute_reward_done()
@@ -527,11 +578,11 @@ class MultiAgentSAR(MultiAgentEnv):
         reward = {}
         for name in self.agent_names:
             r = 0.0
-            r += per_agent_new_cells[name] * 0.5     # per-agent coverage bonus
-            r += team_rew / self.n_agents    # share team reward evenly
-            r += -0.01   # time penalty    
+            r += per_agent_new_cells[name] * 0.5 # per-agent coverage bonus
+            r += team_rew / self.n_agents        # share team reward evenly
+            r += -0.01                           # time penalty    
             if collided:
-                r += -2.0                            # optional collision penalty
+                r += -2.0                        # collision penalty
             reward[name] = float(r)
         
         self._step_count += 1
@@ -541,6 +592,7 @@ class MultiAgentSAR(MultiAgentEnv):
         terminated = {name: False for name in self.agent_names}
         truncated  = {name: False for name in self.agent_names}
         episode_done = bool(found_all_target or collided)
+        
         # Task termination (success or collision)
         if found_all_target:
             reason = "success"
@@ -565,62 +617,6 @@ class MultiAgentSAR(MultiAgentEnv):
                 info[name]["done_reason"] = reason
         return obs, reward, terminated, truncated, info
     
-    def _check_collision(self):
-        ncon = self.data.ncon
-        if ncon is not None:
-            for i in range(ncon):
-                contact = self.data.contact[i]
-                g1 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom1)
-                g2 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom2)
-                if ("agent_" in g1) or ("agent_" in g2):
-                    # print(f"{g1} collide with {g2}")
-                    return True
-
-        return False
-    
-    # ---- helper: max-pool and flatten the visited grid ----
-    def _coverage_embedding(self):
-        H, W = self.visited.shape
-        k = self.cover_k
-        H2, W2 = H // k, W // k
-        trimmed = self.visited[:H2*k, :W2*k]
-        # max-pool over k×k blocks (any cell visited in the block → 1)
-        pooled = trimmed.reshape(H2, k, W2, k).max(axis=(1, 3))
-        emb = pooled.astype(np.float32).reshape(-1)   # shape = (H2*W2,)
-        return emb  # values in {0.0, 1.0}
-
-    def _build_agent_map(self):
-        agent_map = {}
-
-        for agent in self.agent_names:
-            # Actuator indices
-            ids = []
-
-            # Agent's joints
-            for j in [1, 2]:
-                joint_name = f"{agent}_j{j}"
-                # print(joint_name)
-                j_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
-                # print("AGENT MAP "+  act_name + str(a_id))
-                ids.append(j_id)
-            ids = np.array(ids, dtype=np.int32)
-
-            # Original body position (xy)
-            body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, agent)
-            pos = self.model.body_pos[body_id][:2].copy()  # only x, y
-
-            agent_map[agent] = {"ctrl_ids": ids, "init_pos": pos, "body_id": body_id}
-        
-        # print("=== Agent map ===")
-        
-        for name, m in agent_map.items():
-            ctrl_ids = m["ctrl_ids"].tolist()
-            init_pos = m["init_pos"].tolist()
-            body_id  = int(m["body_id"])
-            # print(f"{name}: body_id={body_id}, ctrl_ids={ctrl_ids}, init_pos={init_pos}")
-        
-        return agent_map
-
     def render(self):
         if not self.render_enabled:
             return
