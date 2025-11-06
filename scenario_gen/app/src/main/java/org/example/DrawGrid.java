@@ -1,8 +1,3 @@
-// cd scenario_gen/app/src/main/java/org/example                       
-
-// cd /Users/susu/Desktop/Thesis_Project/scenario_gen
-// ./gradlew :app:run -PmainClass=org.example.DrawGrid
-
 package org.example;
 
 import com.google.gson.Gson;
@@ -13,6 +8,8 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+
+// ./gradlew run -PmainClass=org.example.DrawGrid
 
 public class DrawGrid extends JPanel {
     static class XY { int x, y; }

@@ -6,6 +6,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
+// ./gradlew run -PmainClass=org.example.GenerateMujocoXML
+
 public class GenerateMujocoXML {
 
     static class XY { int x, y; }
@@ -30,15 +32,13 @@ public class GenerateMujocoXML {
             }
         }
 
-        // Mapping: grid (0..W-1, 0..H-1) -> world coords within [-10,10]x[-10,10]
-        // Center each body in grid cell at z=0.5.
-        final double XMIN = -10.0, XMAX = 10.0;
-        final double YMIN = -10.0, YMAX = 10.0;
+        final double XMIN = -2.5, XMAX = 2.5;
+        final double YMIN = -2.5, YMAX = 2.5;
         final int W = s.grid.get("W");
         final int H = s.grid.get("H");
         final double cellX = (XMAX - XMIN) / W;
         final double cellY = (YMAX - YMIN) / H;
-        final double z = 0.5;
+        final double z = 0.125;
 
         // Convert (grid x,y) -> (world x,y,z)
         java.util.function.BiFunction<Integer,Integer,double[]> toWorld = (gx, gy) -> {
@@ -66,8 +66,8 @@ public class GenerateMujocoXML {
 
               <asset>
                 <texture builtin="gradient" height="100" rgb1="0.6 0.8 1" rgb2="0.1 0.1 0.1" type="skybox" width="100"/>
-                <texture name="floor_texture" type="2d" builtin="checker" width="100" height="100" rgb1="0.5 0.5 0.5" rgb2="0.5 0.5 0.5"/>
-                <material name="MatPlane" reflectance="0.5" shininess="1" specular="1" texrepeat="10 10" texture="floor_texture"/>
+                <texture name="floor_texture" type="2d" builtin="checker" width="100" height="100" rgb1="0.1 0.1 0.1" rgb2="0.5 0.5 0.5"/>
+                <material name="MatPlane" reflectance="0.5" shininess="1" specular="1" texrepeat="5 5" texture="floor_texture"/>
               </asset>
 
               <contact>
@@ -88,7 +88,7 @@ public class GenerateMujocoXML {
               <worldbody>
                 <light cutoff="100" diffuse="0.9 0.9 0.9" dir="-0 0 -1.3" directional="true" exponent="1" pos="0 0 1.3" specular=".1 .1 .1"/>
                 <body name="floor" pos="0 0 0">
-                  <geom name="floor_geom" type="plane" size="10 10 0.1" material="MatPlane"/>
+                    <geom name="floor_geom" type="plane" size="2.5 2.5 0.1" material="MatPlane"/>
                 </body>
             """);
 
@@ -102,7 +102,7 @@ public class GenerateMujocoXML {
             for (XY t : s.targets) {
                 double[] p = toWorld.apply(t.x, t.y);
                 xml.append(formatBodyBox("target_" + idx, "target_geom_" + idx, p,
-                        "1 1 0 1", 0.5, 0.5, 0.5));
+                        "1 1 0 1", 0.125, 0.125, 0.125));
                 idx++;
             }
         }
@@ -113,17 +113,17 @@ public class GenerateMujocoXML {
             for (XY o : s.obstacles) {
                 double[] p = toWorld.apply(o.x, o.y);
                 xml.append(formatBodyBox("obstacle_" + idx, "obstacle_geom_" + idx, p,
-                        "0 0 0 1", 0.5, 0.5, 0.5));
+                        "0 0 0 1", 0.125, 0.125, 0.125));
                 idx++;
             }
         }
 
         // Arena walls
         xml.append("""
-                <geom name="wall_west"  type="box" pos="-10  0  0.5" size="0.05 10   0.5" rgba="0 0 0 1" contype="1" conaffinity="1"/>
-                <geom name="wall_east"  type="box" pos=" 10  0  0.5" size="0.05 10   0.5" rgba="0 0 0 1" contype="1" conaffinity="1"/>
-                <geom name="wall_south" type="box" pos="  0 -10 0.5" size="10   0.05 0.5" rgba="0 0 0 1" contype="1" conaffinity="1"/>
-                <geom name="wall_north" type="box" pos="  0  10 0.5" size="10   0.05 0.5" rgba="0 0 0 1" contype="1" conaffinity="1"/>
+                <geom name="wall_west"  type="box" pos="-2.5  0  0.125" size="0.05 2.5 0.125" rgba="0 0 0 1" contype="1" conaffinity="1"/>
+                <geom name="wall_east"  type="box" pos=" 2.5  0  0.125" size="0.05 2.5  0.125" rgba="0 0 0 1" contype="1" conaffinity="1"/>
+                <geom name="wall_south" type="box" pos="  0 -2.5 0.125" size="2.5  0.05 0.125" rgba="0 0 0 1" contype="1" conaffinity="1"/>
+                <geom name="wall_north" type="box" pos="  0  2.5 0.125" size="2.5 0.05 0.125" rgba="0 0 0 1" contype="1" conaffinity="1"/>
               </worldbody>
 
               <actuator>
@@ -149,7 +149,7 @@ public class GenerateMujocoXML {
                     <body name="%s" pos="%.6f %.6f %.6f">
                         <joint name="%s_j1" type="slide" axis="1 0 0"/>
                         <joint name="%s_j2" type="slide" axis="0 1 0"/>
-                        <geom name="%s_geom" type="box" size="0.5 0.5 0.5" rgba="0 0 1 1"/>
+                        <geom name="%s_geom" type="box" size="0.125 0.125 0.125" rgba="0 0 1 1"/>
                     </body>
                 """,
                 name, p[0], p[1], p[2],

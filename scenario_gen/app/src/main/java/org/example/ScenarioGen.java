@@ -26,14 +26,15 @@ public class ScenarioGen {
 
     // ------------ Configuration ------------
     static class Config {
-        int H = 20;            // grid height (y in [0..H-1])
-        int W = 20;            // grid width  (x in [0..W-1])
+        int H = 10;            // grid height (y in [0..H-1])
+        int W = 10;            // grid width  (x in [0..W-1])
         int N_AGENTS = 2;
         int N_TARGETS = 3;
-        int N_OBS = 30;        // number of obstacle cells
-        int MIN_MANHATTAN = 5; // min Manhattan distance agent <-> target
+        int N_OBS = 6;        // number of obstacle cells
+        int MIN_MANHATTAN = 3; // min Manhattan distance agent <-> target
         Long SEED = (long) 1234;
         boolean requireAtLeastOneFreeRingAroundAgents = true; // optional safety
+        String outPath = "src/main/resources/org/example/scenario.json";
     }
 
     static class XY {
@@ -304,7 +305,30 @@ public class ScenarioGen {
         }
 
         Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        String json = gson.toJson(out);
         System.out.println(gson.toJson(out));
+        
+        if (cfg.outPath != null && !cfg.outPath.isEmpty()) {
+            try {
+                java.nio.file.Path p = java.nio.file.Paths.get(cfg.outPath);
+                java.nio.file.Path parent = p.getParent();
+                if (parent != null) {
+                    java.nio.file.Files.createDirectories(parent);
+                }
+                java.nio.file.Files.write(
+                    p,
+                    json.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    java.nio.file.StandardOpenOption.CREATE,
+                    java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                    java.nio.file.StandardOpenOption.WRITE
+                );
+                System.err.println("Wrote scenario JSON to: " + p.toAbsolutePath());
+            } catch (Exception e) {
+                System.err.println("Failed to write JSON to '" + cfg.outPath + "': " + e.getMessage());
+                System.exit(3);
+            }
+        }
+
     }
 
     // ------------ CLI parsing ------------
@@ -320,6 +344,7 @@ public class ScenarioGen {
             else if (a.startsWith("--minMan=")) c.MIN_MANHATTAN = Integer.parseInt(a.substring(9));
             else if (a.startsWith("--seed=")) c.SEED = Long.parseLong(a.substring(7));
             else if (a.startsWith("--ring=")) c.requireAtLeastOneFreeRingAroundAgents = Integer.parseInt(a.substring(7)) != 0;
+            else if (a.startsWith("--out=")) c.outPath = a.substring(6);
         }
         return c;
     }

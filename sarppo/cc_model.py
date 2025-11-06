@@ -1,3 +1,5 @@
+
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -33,6 +35,7 @@ class TorchCCModel(TorchModelV2, nn.Module):
             cmc = model_config.get("custom_model_config", {})
 
             self._debug = bool(cmc.get("debug_dump", True))  # turn on/off from PPO config
+            # self._debug = getattr(self, "_debug", True)
             self._actor_prints = 0
             self._critic_prints = 0
 
@@ -56,21 +59,22 @@ class TorchCCModel(TorchModelV2, nn.Module):
 
 
         self.grid_size = 5  # 5x5 grid
-        self.grid_dim = self.grid_size * self.grid_size  # = 25
+        self.extra_dim = 3
+        self.grid_dim = self.grid_size * self.grid_size
 
-        # Separate global state into: [agent features | grid]
-        self.flat_global_dim = self.global_dim - self.grid_dim
+        # Separate global state into: [agent features | grid  | extras(3)]
+        self.flat_global_dim = self.global_dim - (self.grid_dim + self.extra_dim)
 
         # CNN encoder for 5x5 coverage grid (1 input channel)
         self.grid_encoder = nn.Sequential(
-            nn.Conv2d(1, 8, kernel_size=3, padding=1), nn.ReLU(),  # [B, 8, 5, 5]
-            nn.Flatten(),                                          # [B, 200]
-            nn.Linear(200, 64), nn.ReLU()                          # [B, 64]
+            nn.Conv2d(1, 8, kernel_size=3, padding=1), nn.ReLU(),  
+            nn.Flatten(),                                          
+            nn.Linear(8 * self.grid_size * self.grid_size, 64), nn.ReLU()                          # [B, 64]
         )
 
         # Updated critic
         self.critic = nn.Sequential(
-            nn.Linear(self.flat_global_dim + 64, 256), nn.ReLU(),
+            nn.Linear(self.flat_global_dim + 64 + self.extra_dim, 256), nn.ReLU(),
             nn.Linear(256, 256), nn.ReLU(),
             nn.Linear(256, 1)
         )
@@ -112,14 +116,25 @@ class TorchCCModel(TorchModelV2, nn.Module):
                 self._actor_prints += 1
 
 
-        # Split global into [non-grid, grid]
-        flat_global = o_global[..., :self.flat_global_dim]      # [B, global_flat]
-        grid_flat   = o_global[..., self.flat_global_dim:]      # [B, 25]
-        grid_image  = grid_flat.view(-1, 1, 5, 5)                # [B, 1, 5, 5]
-        grid_feat   = self.grid_encoder(grid_image)             # [B, 64]
+        # # Split global into [non-grid, grid]
+        # flat_global = o_global[..., :self.flat_global_dim]      # [B, global_flat]
+        # grid_flat   = o_global[..., self.flat_global_dim:]      # [B, 25]
+        # grid_image  = grid_flat.view(-1, 1, 5, 5)                # [B, 1, 5, 5]
+        # grid_feat   = self.grid_encoder(grid_image)             # [B, 64]
+        # o_global shape: [B, global_dim] = [B, flat + 25 + 3]
+        
+        flat_end   = self.flat_global_dim
+        grid_end   = flat_end + self.grid_dim
+
+        flat_global = o_global[..., :flat_end]                 # [B, flat]
+        grid_flat   = o_global[..., flat_end:grid_end]         # [B, 25]
+        extras      = o_global[..., grid_end:]                 # [B, 3]
+
+        grid_image  = grid_flat.view(-1, 1, self.grid_size, self.grid_size)  # [B,1,5,5]
+        grid_feat   = self.grid_encoder(grid_image)                          # [B,64]
 
         # Cache critic input
-        self._vf_in = torch.cat([flat_global, grid_feat], dim=-1)
+        self._vf_in = torch.cat([flat_global, grid_feat, extras], dim=-1)    # [B, flat+64+3]
 
 
 

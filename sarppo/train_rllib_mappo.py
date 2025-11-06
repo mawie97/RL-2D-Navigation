@@ -2,6 +2,7 @@ import ray
 from ray.rllib.algorithms.ppo import PPOConfig
 from env_rllib_wrapper import register_sar_env
 import cc_model as cc_model
+# simport cc_model_copy as cc_model
 import numpy as np
 from gymnasium.spaces import Dict as DictSpace, Box
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
@@ -101,7 +102,8 @@ if __name__ == "__main__":
 
     OBS_DIM, N_AGENTS = 16, 2
     COV_DIM = 25
-    GLOBAL_DIM = OBS_DIM * N_AGENTS + COV_DIM
+    EXTRA_DIM = 3
+    GLOBAL_DIM = OBS_DIM * N_AGENTS + COV_DIM + EXTRA_DIM
 
     dict_obs_space = DictSpace({
         "obs":   Box(-np.inf, np.inf, shape=(OBS_DIM,),    dtype=np.float32),
@@ -141,7 +143,7 @@ if __name__ == "__main__":
             },
             gamma=0.995, lr=3e-4, lambda_=0.95,
             train_batch_size=200, minibatch_size=200, num_epochs=10,
-            clip_param=0.2, vf_clip_param=100.0, entropy_coeff=0.001,
+            clip_param=0.2, vf_clip_param=100.0, entropy_coeff=0.01,
         )
         .callbacks(MyCallbacks)
         .resources(num_gpus=0)
@@ -150,7 +152,6 @@ if __name__ == "__main__":
                 enable_env_runner_and_connector_v2=False)
     )
 
-        # Choose where Tune writes results/checkpoints
     project_root = Path(__file__).resolve().parent
     results_dir = project_root / "ray_results"
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -158,8 +159,8 @@ if __name__ == "__main__":
     tuner = tune.Tuner(
         "PPO",
         run_config=RunConfig(
-            stop={"episodes_total": 5},
-            # stop={"training_iteration": 1},
+            # stop={"episodes_total": 5},
+            stop={"training_iteration": 1000},
             # stop={"cumulative_episodes": 3},                
             storage_path=str(results_dir),                     
             name="sar_ppo_run",

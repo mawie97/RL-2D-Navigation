@@ -38,7 +38,9 @@ java {
 
 application {
     // Define the main class for the application.
-    mainClass = 'org.example.ScenarioGen'
+    // mainClass = 'org.example.ScenarioGen'
+    mainClass = providers.gradleProperty("mainClass")
+                    .orElse("org.example.ScenarioGen")
 }
 
 tasks.named('test') {
