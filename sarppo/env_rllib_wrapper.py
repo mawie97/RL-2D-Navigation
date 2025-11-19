@@ -16,6 +16,8 @@ def make_env_creator(default_csv=None, default_xmls=None):
         return MultiAgentSAR(
             csv_log_path=cfg.get("csv_log_path", default_csv),
             xml_paths=cfg.get("xml_paths", default_xmls),
+            render_enabled=cfg.get("render_enabled", True),
+            seed=cfg.get("seed", None),
         )
     return _creator
 

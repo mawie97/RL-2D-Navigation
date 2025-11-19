@@ -4,7 +4,9 @@
 # in the info dictionary that concatenates all agents’ observations.
 
 import csv
+import math
 import random
+import os, glob
 from collections import deque
 from typing import Dict, Tuple
 import numpy as np
@@ -15,26 +17,36 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 # PYTHONWARNINGS="ignore::DeprecationWarning" python sarppo/train_rllib_mappo.py  
 
-SWITCH_EVERY = 10
+SWITCH_EVERY = 20
 POSITION_HISTORY_LEN = 20
-CUTOFF_VALUE = 1 #sensor cutoff value - sensor range
-MAX_STEPS = 500 #terminate episode if max_steps is reached
+CUTOFF_VALUE = 1.5 #sensor cutoff value - sensor range
+SAFE_DISTANCE = 1.3
+AGENT_SIZE = 0.125 #half size
+DISTANCE_LIMIT = 10 #half of the training area
+MAX_STEPS = 3000 #terminate episode if max_steps is reached
 MAX_ACTION = 0.1 #action space
+IDLE_WINDOW  = 15
+IDLE_PENALTY = -0.3   # TUNE LATER
 AGENT_PREFIX = "agent_"
-OBS_DIM = 16
+CELL_SIZE = 1
+
+OBS_DIM = 18
 ACT_DIM = 2
 N_RAYS = 12
-RAY_LENGTH = 1.5
+RAY_LENGTH = 2.1
 NOISE_STD = 0.00
 TARGET_NR = 3
-GRID_BOUNDS = (-2.5, 2.5, -2.5, 2.5) # grid representation bounds
+GRID_BOUNDS = (-10, 10, -10, 10) # grid representation bounds
+PISITION_LIMIT = 10
+MAX_SUBSTEP = 10000
+REACH_TOLORENCE = 0.01
 
 class MultiAgentSAR(MultiAgentEnv):
 
     def __init__(self, csv_log_path, xml_paths, render_enabled = True, seed = None):
         super().__init__()
         
-        self.xml_paths = xml_paths
+        self.xml_paths = self._normalize_xml_paths(xml_paths)
         self.num_xmls = len(self.xml_paths)
         self.switch_every = SWITCH_EVERY
         self.episode_count = 0     
@@ -47,6 +59,7 @@ class MultiAgentSAR(MultiAgentEnv):
         self.position_history = deque(maxlen=POSITION_HISTORY_LEN)
         
         self.cutoff_value = CUTOFF_VALUE
+        self.safe_distance = SAFE_DISTANCE
         self.max_steps = MAX_STEPS
         self.csv_log_path = csv_log_path
         # print(f"Loaded XML paths: {self.xml_paths}")
@@ -54,7 +67,7 @@ class MultiAgentSAR(MultiAgentEnv):
 
         # coverage grid
         self.grid_bounds = GRID_BOUNDS
-        self.cell_size = 1.0
+        self.cell_size = CELL_SIZE
         xmin, xmax, ymin, ymax = GRID_BOUNDS
         self.grid_W = int(np.ceil((xmax - xmin) / self.cell_size))
         self.grid_H = int(np.ceil((ymax - ymin) / self.cell_size))
@@ -63,27 +76,33 @@ class MultiAgentSAR(MultiAgentEnv):
         # Add grid coverage to the critic
         self.cov_dim = self.grid_H * self.grid_W
         self.extra_dim = 3
+
+        # Used to setup the boundry
+        self.origin = np.array([0.0, 0.0], dtype=np.float64)
+        self.origin_limit = 10
          
-        self.reach_tol = 0.001 #reach tolerance if the agent reah the world target
-        self.max_substeps_per_action = 50000
+        self.reach_tol = REACH_TOLORENCE #reach tolerance if the agent reah the world target
+        self.max_substeps_per_action = MAX_SUBSTEP
         self.steps_since_discovery = 0 
 
         #This is used to save the world target for each agent at each timestep
         self._step_targets = {}
-        
         self._load_model_and_setup(self.current_xml_index)
         self._reset_episode_state()   
 
         self.found_targets:set[int] = set()
+        self.prev_found_norm = 0.0
         self.per_agent_new_cells = {name: 0 for name in self.agent_names}
         self.last_ray_hits: Dict[str, set[int]] = {name : set() for name in self.agent_names}
         self.target_nr = TARGET_NR
 
-        self.debug_dump = bool(render_enabled)  # or from env_config["debug_dump"]
+        self.debug_dump = bool(render_enabled)
         self._printed_reset = False
         self._printed_step  = False
-        self._recent_pos = {name: deque(maxlen=10) for name in self.agent_names}
 
+        print(f"[ENV] Loaded {self.num_xmls} XMLs")
+        for i, p in enumerate(self.xml_paths):
+            print(f"  {i}: {p}")
         
         if self.csv_log_path is not None:
             self.log_file_handle = open(self.csv_log_path, mode='w', newline='')
@@ -103,20 +122,53 @@ class MultiAgentSAR(MultiAgentEnv):
                 # 'delta_x','delta_y',
                 'newly_marked','coverage_total',
                 'team_reward_share', 'target_total','coverage_bonus','time_penalty',
-                'proximity_penalty','collision_penalty', 'obsDistance_penalty', 'idle_penalty','reward_total',
+                'proximity_penalty','collision_penalty', 'obsDistance_penalty', 'idle_penalty','progress_pen','reward_total','done_reason'])
+        
+            epi_path = (self.csv_log_path[:-4] + ".episodes.csv") if self.csv_log_path.endswith(".csv") \
+                        else (self.csv_log_path + ".episodes.csv")
+            self.episode_log_path = epi_path
+            self.episode_log_handle = open(self.episode_log_path, mode='w', newline='')
+            self.episode_log_writer = csv.writer(self.episode_log_handle)
+            self.episode_log_writer.writerow([
+                'episode', 'agent', 'ep_len',
+                'sum_newly_marked', 'final_coverage_total',
+                'final_targets_found',
+                'sum_team_reward', 'sum_team_reward_share',
+                'sum_coverage_bonus', 'sum_time_penalty',
+                'sum_proximity_penalty', 'sum_collision_penalty',
+                'sum_obsDistance_penalty', 'sum_idle_penalty',
+                'sum_progress_pen', 'sum_reward_total', 'team_reward_total',
                 'done_reason'
             ])
+        
         else:
             self.step_log_path = None
             self.step_log_handle = None
             self.step_log_writer = None
+            self.episode_log_path = None
+            self.episode_log_handle = None
+            self.episode_log_writer = None
 
 
 #  ================= Helper function used in the _init_  =================
-
+    def _normalize_xml_paths(self, paths):
+        out = []
+        for p in paths:
+            if os.path.isdir(p):
+                out.extend(sorted(glob.glob(os.path.join(p, "*.xml"))))
+            else:
+                out.append(p)
+        # de-dupe, preserve order
+        seen=set(); uniq=[]
+        for p in out:
+            if p not in seen:
+                uniq.append(p); seen.add(p)
+        return uniq
+ 
     def _load_model_and_setup(self, index):
         self._load_model(index)
         self._get_agents_from_model()
+        self._recent_pos = {name: deque(maxlen=max(10, IDLE_WINDOW)) for name    in self.agent_names}
         self.agent_map = self._build_agent_map()
         self._setup_agents_ray_casting()
         self._setup_action_observation_spaces()
@@ -176,6 +228,11 @@ class MultiAgentSAR(MultiAgentEnv):
         self.ray_directions = self._compute_ray_directions(self.n_rays)
         self.ray_geomid_out = np.zeros(self.n_rays, dtype=np.int32)
         self.ray_dist_out = np.zeros(self.n_rays, dtype=np.float64)
+        
+        # per-ray inner offsets from agent box
+        self._hx, self._hy = AGENT_SIZE, AGENT_SIZE   # from your XML geom size="0.125 0.125"
+        self._angles = np.linspace(0.0, 2.0*np.pi, self.n_rays, endpoint=False)
+        self._offsets = np.abs(np.cos(self._angles)) * self._hx + np.abs(np.sin(self._angles)) * self._hy
 
     def _compute_ray_directions(self, n_rays):
         ray_directions = []
@@ -204,15 +261,20 @@ class MultiAgentSAR(MultiAgentEnv):
         self.global_dim = self.obs_dim * self.n_agents
         # ADD: coverage embedding size
         self.state_dim = self.global_dim + self.cov_dim + self.extra_dim
-        
+        rel_limit = 2*PISITION_LIMIT
         # ---- Build bounds for ACTOR obs (length 16 = 12 rays + dx + dy + 2 indicators) ----
         # rays in [0, cutoff] (12)
-        obs_low  = np.concatenate([np.zeros(12, dtype=f32),
-                                np.full(2, -5.0, dtype=f32),   # (dx,dy) ~ arena-sized
-                                np.zeros(2, dtype=f32)])       # indicators in {0,1}
-        obs_high = np.concatenate([np.full(12, cutoff, dtype=f32),
-                                np.full(2,  5.0, dtype=f32),   # (dx,dy)
-                                np.ones(2, dtype=f32)])
+        # Order: [r_norm, ux, uy, 12 rays, rel_pos(2), flags(2)]
+        obs_low  = np.concatenate([
+                                np.full(2, -1.0, dtype=f32),         # x_norm, y_norm in [-1, 1]
+                                np.zeros(12, dtype=f32),                # rays in [0, cutoff]
+                                np.full(2, -rel_limit, dtype=f32),            # rel_pos ~ arena
+                                np.zeros(2, dtype=f32)])                # indicators in {0,1}
+        obs_high = np.concatenate([
+                                np.full(2,  1.0, dtype=f32),            # ux, uy in [-1,1]        
+                                np.full(12, cutoff, dtype=f32),         # rays
+                                np.full(2,  rel_limit, dtype=f32),            # rel_pos ~ arena
+                                np.ones(2, dtype=f32)])                 # indicators in {0,1}
         
         # ---- Build bounds for CRITIC state: [global (2*obs_dim) | coverage(=0/1) | extras(0..1)] ----
         # global = concat of locals for both agents; reuse same per-feature bounds twice
@@ -252,6 +314,10 @@ class MultiAgentSAR(MultiAgentEnv):
 
     #  ================= Helper function used in the reset()  =================
     def _switch_model(self):
+        if self.viewer is not None:
+            try: self.viewer.close()
+            except Exception: pass
+            self.viewer = None
         self.current_xml_index = (self.current_xml_index + 1) % self.num_xmls
         self._load_model_and_setup(self.current_xml_index)
 
@@ -265,6 +331,27 @@ class MultiAgentSAR(MultiAgentEnv):
         for name in self.agent_names:
            self._last_ray_surface[name].fill(0.0)
         self.per_agent_new_cells = {name: 0 for name in self.agent_names}
+        for name in self.agent_names:
+            self._recent_pos[name].clear()
+        self.prev_found_norm = 0.0
+
+        self.ep_sums = {
+            name: {
+                "sum_newly_marked": 0,
+                "sum_team_reward_share": 0.0,
+                "sum_coverage_bonus": 0.0,
+                "sum_time_penalty": 0.0,
+                "sum_prox_pen": 0.0,
+                "sum_coll_pen": 0.0,
+                "sum_obsDistance_penalty": 0.0,
+                "sum_idle_penalty": 0.0,
+                "sum_progress_pen": 0.0,
+                "sum_reward_total": 0.0,
+            }
+            for name in self.agent_names
+        }
+
+        self.ep_team_reward = 0.0
 
     def _get_local_obs_dict(self) -> dict[str, np.ndarray]:
         """
@@ -279,7 +366,6 @@ class MultiAgentSAR(MultiAgentEnv):
     def _get_agent_obs(self, agent_name):
         raw_readings, hit_target, hit_obstacle = self._update_rays(agent_name)
         ray_surface_distances = self._adjust_raw_rays(raw_readings, NOISE_STD)
-
         self._last_ray_surface[agent_name] = ray_surface_distances.astype(np.float32, copy=False)
         
         # Relative position to other agent
@@ -288,11 +374,20 @@ class MultiAgentSAR(MultiAgentEnv):
         other_pos = self.data.xpos[self.agent_map[others[0]]["body_id"]][:2]
         rel_pos = other_pos - my_pos # 2D vector
         
-        # Hit indicators: 1.0 if hit, 0.0 if not
+        x, y = my_pos[0], my_pos[1]
+        x_norm = float(np.clip(x / DISTANCE_LIMIT, -1.0, 1.0))
+        y_norm = float(np.clip(y / DISTANCE_LIMIT, -1.0, 1.0))
+
+        # Indicators: 1.0 yes, 0.0 no
         target_indicator = 1.0 if hit_target else 0.0
         obstacle_indicator = 1.0 if hit_obstacle else 0.0
 
-        obs = np.asarray([*ray_surface_distances, *rel_pos,target_indicator, obstacle_indicator], dtype=np.float32)
+        obs = np.asarray(
+            [x_norm, y_norm,
+             *ray_surface_distances, 
+             *rel_pos,
+             target_indicator, 
+             obstacle_indicator], dtype=np.float32)
         return obs
 
     def _get_global_state(self, obs_dict: Dict[str, np.ndarray] | None = None) -> np.ndarray:
@@ -312,22 +407,17 @@ class MultiAgentSAR(MultiAgentEnv):
         k = 1
         H2, W2 = H // k, W // k
         trimmed = self.visited[:H2*k, :W2*k]
-        # max-pool over k×k blocks (any cell visited in the block → 1)
         pooled = trimmed.reshape(H2, k, W2, k).max(axis=(1, 3))
-        emb = pooled.astype(np.float32).reshape(-1)   # shape = (H2*W2,)
+        emb = pooled.astype(np.float32).reshape(-1)
         return emb  # values in {0.0, 1.0}
 
     def _critic_extras(self):
-        # Normalized time in [0,1]
-        t_norm = float(self._step_count) / float(self.max_steps)
-        found = float(len(self.found_targets))
-        total = float(self.target_nr)
+        # Normalized all three in [0,1]
+        t_norm = float(self._step_count) / float(self.max_steps)      
+        found_norm = float(len(self.found_targets)) / max(float(self.target_nr), 1.0)
+        visited_norm = float(self.visited.sum()) / float(self.cov_dim) #
         
-        # Normalize counts to [0,1] assuming target_nr > 0
-        found_norm = found / max(total, 1.0)
-        total_norm = min(total / 10.0, 1.0)
-        
-        return np.array([t_norm, found_norm, total_norm], dtype=np.float32)
+        return np.array([t_norm, found_norm, visited_norm], dtype=np.float32)
 
     def _pack_obs(self, local_obs_dict: dict[str, np.ndarray], gs: np.ndarray):
         # Ensure f32 and correct shapes
@@ -390,6 +480,7 @@ class MultiAgentSAR(MultiAgentEnv):
 
         # convert to joint targets (relative to initial pos)
         joint_targets = target_world - init_pos
+        # print(" ")
         # print(f"Step: {self._step_count} Namd:  {name}, world target: {target_world}")
         # print(f".{self._step_count} Delta :{delta} ")
         return  joint_targets.astype(np.float32), target_world.astype(np.float32)
@@ -441,22 +532,21 @@ class MultiAgentSAR(MultiAgentEnv):
     def _reward_distance_between_agents(self) -> float:
         pos = [self.data.xpos[self.agent_map[n]["body_id"]][:2] for n in self.agent_names]
         dist = np.linalg.norm(pos[0] - pos[1])
-        d_safe = 1.0
         k = 0.3
-        if dist < d_safe:
+        if dist < self.safe_distance:
             return - k * (1 - dist) ** 2
         return 0.0
     
     def _reward_milestone(self) -> float:
         lam = 1.0 / self.max_steps
-        return - lam * min(self.steps_since_discovery, self.max_steps)
+        return - lam * min(self.steps_since_discovery, self.max_steps) * 0.1
     
     def _compute_individual_reward(self, name) -> Tuple[float, float, float, float]:
         # Get agent information
         bid = self.agent_map[name]["body_id"]
         cur_xy = self.data.xpos[bid][:2]
         self._recent_pos[name].append(cur_xy)
-        newly = self._mark_cells_within_range(cur_xy)
+        newly = self._mark_cells_within_range(name, cur_xy)
         self.per_agent_new_cells[name] = newly
 
         visit_new_cells_reward = newly * 1
@@ -468,19 +558,45 @@ class MultiAgentSAR(MultiAgentEnv):
         
         return sum_reward, visit_new_cells_reward, obstacle_distance_reward, idle_reward
    
-    def _mark_cells_within_range(self, agent_xy):
+    # Mark cells based on the sensor range
+    def _mark_cells_within_range(self,name, agent_xy):
         newly_marked = 0
         xmin, xmax, ymin, ymax = self.grid_bounds
+        ax, ay = float(agent_xy[0]), float(agent_xy[1])
+
         for i in range(self.grid_H):
+            cy = ymin + (i + 0.5) * self.cell_size
             for j in range(self.grid_W):
+                if self.visited[i, j] == 1:
+                    continue
+
                 cx = xmin + (j + 0.5) * self.cell_size
-                cy = ymin + (i + 0.5) * self.cell_size
-                dist = np.linalg.norm(np.array([cx, cy]) - agent_xy)
-                if dist <= 0.5 and self.visited[i, j] == 0: # 0.5 is the half of cutoff
+                dist = math.hypot(cx - ax, cy - ay)  # sqrt((dx)^2 + (dy)^2)
+
+                # Mark if within sensor (cutoff) range
+                if dist <= self.cutoff_value:
                     self.visited[i, j] = 1
                     newly_marked += 1
-
+        
+        if newly_marked > 0:
+            dq = self._recent_pos[name]
+            dq.clear()
+            dq.append(agent_xy.copy())
         return newly_marked
+    
+    # # Mark cells based on the center point
+    # def _mark_cells_within_range(self,name, agent_xy):
+    #     xmin, xmax, ymin, ymax = self.grid_bounds
+    #     x, y = float(agent_xy[0]), float(agent_xy[1])
+    #     j = int(np.clip(np.floor((x - xmin)/self.cell_size), 0, self.grid_W-1))
+    #     i = int(np.clip(np.floor((y - ymin)/self.cell_size), 0, self.grid_H-1))
+    #     if self.visited[i, j] == 0:
+    #         self.visited[i, j] = 1
+    #         dq = self._recent_pos[name]
+    #         dq.clear()
+    #         dq.append(agent_xy)
+    #         return 1
+    #     return 0
     
     def _reward_obstacle_distance(self, name:str) -> float:
         
@@ -491,27 +607,64 @@ class MultiAgentSAR(MultiAgentEnv):
             return 0.0
 
         min_dist = float(np.min(rays))
-        cutoff_value = float(0.8)
 
-        if min_dist >= cutoff_value:
+        if min_dist >= self.safe_distance:
             return 0.0
         
-        obstacle_distance_reward = (min_dist -  cutoff_value) /  cutoff_value
+        obstacle_distance_reward = (min_dist -  self.safe_distance) /  self.safe_distance
         # print(f"   Rays: {rays}, penalty: {obstacle_distance_penalty}")
         # print(" ")
         return obstacle_distance_reward
+    
+    # Scale distance reward
+    # def _reward_obstacle_distance(self, name: str) -> float:
+    #     rays = self._last_ray_surface.get(name)
+    #     if rays is None or len(rays) == 0:
+    #         return 0.0
+
+    #     min_dist = float(np.min(rays))
+
+    #     # Tune these three:
+    #     FAR_DIST    = 1.3   # beyond this: no penalty (≈ your safe_distance)
+    #     DANGER_DIST = 0.5   # closer than this: strong penalty
+    #     MAX_PENALTY = -8.0  # must be >= max expected coverage per step
+
+    #     # Far enough → no penalty
+    #     if min_dist >= FAR_DIST:
+    #         return 0.0
+
+    #     # Very close → clamp to strong negative reward
+    #     if min_dist <= DANGER_DIST:
+    #         return MAX_PENALTY
+
+    #     # In between: interpolate smoothly between 0 and MAX_PENALTY
+    #     # min_dist ∈ (DANGER_DIST, FAR_DIST)
+    #     t = (FAR_DIST - min_dist) / (FAR_DIST - DANGER_DIST)  # t ∈ (0,1)
+    #     return t * MAX_PENALTY
 
     def _reward_idle(self, name: str, eps=1e-6):
         q = self._recent_pos[name]
-        if len(q) < 10:
+        if len(q) < IDLE_WINDOW:
             return 0.0
-        # mean step-to-step displacement
-        disp = [np.linalg.norm(np.array(q[i]) - np.array(q[i-1])) for i in range(1, len(q))]
-        mean_move = float(np.mean(disp))
-        if mean_move < 0.01:
-            return -0.3         
-        return 0.0      
+        last_positions = list(q)[-IDLE_WINDOW:]
+        last_cells = [self._grid_coords(p) for p in last_positions]
+        if len(set(last_cells)) == 1:
+            return IDLE_PENALTY
+        return 0.0    
+    
+    def _grid_coords(self, xy) -> Tuple[int, int]:
+        xmin, xmax, ymin, ymax = self.grid_bounds
+        x, y = float(xy[0]), float(xy[1])
+        j = int(np.clip(np.floor((x - xmin)/self.cell_size), 0, self.grid_W - 1))
+        i = int(np.clip(np.floor((y - ymin)/self.cell_size), 0, self.grid_H - 1))
+        return i, j
 
+    # def _reward_finish_rate(self, reward):
+    #     for agent in self.agent_names:
+    #     return 0
+
+    def _found_norm(self):
+        return float(len(self.found_targets)) / max(float(self.target_nr), 1.0)
 
 #  ================= Helper function related to sensor rays  =================
     
@@ -535,11 +688,9 @@ class MultiAgentSAR(MultiAgentEnv):
             self.ray_dist_out,
             self.n_rays,
             float(self.ray_length)
-            # 0.0
         )
 
-        hits = set()
-        
+        hits = set() 
         hit_target = False
         hit_obstacle = False
 
@@ -548,12 +699,14 @@ class MultiAgentSAR(MultiAgentEnv):
             d   = float(self.ray_dist_out[i])
 
             # ignore invalid/no-hit/out-of-range rays
-            if gid == -1 or not np.isfinite(d) or d < 0.0 or d > self.cutoff_value:
+            if gid == -1 or not np.isfinite(d) or d < 0.0:
                 continue
 
             gname = self._geom_name(gid)
-            # count only targets within range
-            if "target" in gname:
+            clearance = d - float(self._offsets[i])
+
+            # TARGET rule: only "found" when within cutoff_value
+            if "target" in gname and clearance <= float(self.cutoff_value):
                 hits.add(gid)
                 hit_target = True
                 # print(".   ")
@@ -561,7 +714,9 @@ class MultiAgentSAR(MultiAgentEnv):
                 # print(f"Ray distance out put: {self.ray_dist_out}")
                 # print(f"Geom out {self.ray_geomid_out}")
                 # print(".   ")
-            else:
+            
+            # OBSTACLE flag: early warning when within safe_distance
+            if "target" not in gname and clearance <= float(self.safe_distance):
                 hit_obstacle = True
 
         self.last_ray_hits[agent_name] = hits
@@ -575,47 +730,26 @@ class MultiAgentSAR(MultiAgentEnv):
         return name or ""
     
     def _adjust_raw_rays(self, raw_readings, noise_std):
-        # raw_readings: np.array of length 12
-        offsets = np.array([
-            0.5,   # 0°
-            0.577, # 30°
-            0.577, # 60°
-            0.5,   # 90°
-            0.577, # 120°
-            0.577, # 150°
-            0.5,   # 180°
-            0.577, # 210°
-            0.577, # 240°
-            0.5,   # 270°
-            0.577, # 300°
-            0.577  # 330°
-        ])
-        
-        # print(" ")
-        # print(f"Raw_reading with -1 {raw_readings}")
-        # Replace -1 (no hit) with 1.6 (max range + margin)
-        raw_readings = np.where(raw_readings == -1, 1.6, raw_readings)
-
+        nohit_value = float(self.ray_length) + 1e-3
+        raw_readings = np.where(raw_readings == -1,nohit_value, raw_readings)
         # print(f"Raw_reading without -1  {raw_readings}")
 
         # Subtract offsets
-        surface_distances = raw_readings - offsets
-        
+        surface_distances = raw_readings - self._offsets   
         # print(f"Surface distance before clip {surface_distances}")
         
-        surface_distances = np.clip(surface_distances, 0, None)
-        
+        surface_distances = np.clip(surface_distances, 0, None)  
         # print(f". Surface distance after clip {surface_distances}")
-        # Clip max distances to 1.0
+        
+        # Clip max distances to cutoff_value
         surface_distances = np.clip(surface_distances, None, self.cutoff_value)
         # print(f". .   Surface distance to cutoff_value {surface_distances}")
+        
         # Add Gaussian noise if noise_std > 0
         if noise_std > 0:
             noise = np.random.normal(0, noise_std, size=surface_distances.shape)
-            surface_distances = surface_distances + noise
-            
-            # Clip again to [0,1]
-            surface_distances = np.clip(surface_distances, 0, 1.0)
+            surface_distances = surface_distances + noise            
+            surface_distances = np.clip(surface_distances, 0, self.cutoff_value)
         # print(f"Surface distance all {surface_distances}")
         # print(" ")
         return surface_distances
@@ -674,7 +808,7 @@ class MultiAgentSAR(MultiAgentEnv):
         collided = False
         substep = 0
         reason = None
-
+        out_of_bounds = False
 
         while True:
             mujoco.mj_step(self.model, self.data)
@@ -685,24 +819,30 @@ class MultiAgentSAR(MultiAgentEnv):
             # print(f"Substeps {sub}")
             if collided:
                 break
-            
+
             for name in self.agent_names:
                 if not reached[name]:
                     bid = self.agent_map[name]["body_id"]
                     cur = self.data.xpos[bid][:2]
+                    if abs(cur[0]) > self.origin_limit + 1e-6 or abs(cur[1]) > self.origin_limit + 1e-6:
+                        out_of_bounds = True
+                        break
                     tgt = self._step_targets[name]
     
                     if np.linalg.norm(cur - tgt) <= self.reach_tol:
                         reached[name] = True
                         # print(f"Agent {name} tgt is {tgt}, cur is {cur}")
-                        # print(f"Agent {name} reach the target position at substeps {substep}! World step: {self._step_count}")
-            
+                        # print(f"Agent {name} reach the target position at substeps {substep}! World step: {self._step_count}")         
+            if out_of_bounds:
+                break
+
             if all(reached.values()):
                 # print(f"All agent arrived to the target position! at substeps {substep}")
                 # print(" ")
                 break
 
             if substep >= self.max_substeps_per_action:
+                print("Substep >= maxsubsteps")
                 break
         
         self.render()
@@ -721,8 +861,32 @@ class MultiAgentSAR(MultiAgentEnv):
         team_rew, found_all_target = self._reward_find_target_reward_done()
         agent_distance_penalty = self._reward_distance_between_agents()
         milestone_pen = self._reward_milestone()
-        # time_pen = -0.01
         
+        cur_found_norm = self._found_norm()
+        delta_found = cur_found_norm - self.prev_found_norm  # >0 only when new targets discovered
+        self.prev_found_norm = cur_found_norm
+        
+        progress = 0.6 * cur_found_norm + 0.4 * (
+            float(self.visited.sum()) / float(self.cov_dim)
+        )  # 0..1
+
+        # weights to tune later
+        P_MAX = 120.0          # max early-stop penalty when no progress and early in time
+        W_TIME = 0.4           # how much time reduces the penalty
+        W_PROG = 0.6           # how much progress reduces the penalty
+
+        # shrink factor in [0,1]: high when early & no progress, low when late & lots of progress
+        t_norm = float(self._step_count) / float(self.max_steps)
+        shrink = (W_TIME * (1.0 - t_norm) + W_PROG * (1.0 - progress))
+        shrink = max(0.0, min(1.0, shrink))  # clamp
+
+        early_penalty = - P_MAX * (shrink ** 2)  # square keeps it gentle near completion
+        
+        episode_done = bool(found_all_target or collided or out_of_bounds)
+        time_up = (self._step_count >= self.max_steps)
+        terminated = {name: False for name in self.agent_names}
+        truncated  = {name: False for name in self.agent_names}
+
         per_agent_logs = {}
         # Calculating individual reward ( per agent)
         for name in self.agent_names:
@@ -735,10 +899,20 @@ class MultiAgentSAR(MultiAgentEnv):
             
             sum_reward, visit_new_cells_reward, obstacle_distance_reward, idle_reward = self._compute_individual_reward(name)
             r = r + sum_reward
+            
             coll_pen = 0
             if collided:
-                coll_pen += -50.0
-            r += coll_pen                         # collision penalty
+                coll_pen = -50
+             
+            r+=coll_pen
+            if found_all_target: r += 500
+            
+            final_pen = 0
+            if (episode_done or time_up) and not found_all_target:
+                # s also get a scaled penalty; they’ll be smaller when late/progress is high
+                final_pen = early_penalty
+            
+            r += final_pen
             reward[name] = float(r)
             
             # cache PER-AGENT values for logging
@@ -748,20 +922,33 @@ class MultiAgentSAR(MultiAgentEnv):
                 "idle_reward": float(idle_reward),
                 "team_reward_share": float(team_rew / self.n_agents),
                 "prox_pen": float(agent_distance_penalty),
-                "coll_pen": float(coll_pen),
+                "coll_pen": coll_pen,
                 "time_pen": float(0.0 if found_all_target else milestone_pen),
                 "newly_marked": int(self.per_agent_new_cells[name]),
+                "progress_pen": final_pen,
                 "reward_total": float(r),
             }
+
+        self.ep_team_reward += float(team_rew)
+
+        for name in self.agent_names:
+            pl = per_agent_logs[name]
+            s = self.ep_sums[name]
+            s["sum_newly_marked"]          += pl["newly_marked"]
+            s["sum_team_reward_share"]     += pl["team_reward_share"]
+            s["sum_coverage_bonus"]        += pl["coverage_bonus"]
+            s["sum_time_penalty"]          += pl["time_pen"]
+            s["sum_prox_pen"]              += pl["prox_pen"]
+            s["sum_coll_pen"]              += pl["coll_pen"]
+            s["sum_obsDistance_penalty"]   += pl["obstacle_distance_reward"]
+            s["sum_idle_penalty"]          += pl["idle_reward"]
+            s["sum_progress_pen"]          += pl["progress_pen"]
+            s["sum_reward_total"]          += pl["reward_total"]
         
         self._step_count += 1
-
-        # Episode-over flags
-        time_up = (self._step_count >= self.max_steps)
-        terminated = {name: False for name in self.agent_names}
-        truncated  = {name: False for name in self.agent_names}
-        episode_done = bool(found_all_target or collided)
         
+        episode_done = bool(found_all_target or collided or out_of_bounds)
+  
         # Task termination (success or collision)
         if found_all_target:
             reason = "success"
@@ -769,7 +956,9 @@ class MultiAgentSAR(MultiAgentEnv):
         elif collided:
             reason = "collision"
             terminated = {name: True for name in self.agent_names}
-
+        elif out_of_bounds:
+            reason = "out_of_bounds"
+            terminated = {name: True for name in self.agent_names}
         # Time-limit truncation (ends episode even if not success/collision)
         if time_up:
             reason = "timeout"
@@ -805,7 +994,7 @@ class MultiAgentSAR(MultiAgentEnv):
                     pl["newly_marked"],
                     coverage_total,
                     pl["team_reward_share"], len(self.found_targets), pl["coverage_bonus"], pl["time_pen"],
-                    pl["prox_pen"], pl["coll_pen"], pl["obstacle_distance_reward"], pl["idle_reward"],
+                    pl["prox_pen"], pl["coll_pen"], pl["obstacle_distance_reward"], pl["idle_reward"], pl["progress_pen"],
                     pl["reward_total"], reason,
                 ])
 
@@ -813,6 +1002,41 @@ class MultiAgentSAR(MultiAgentEnv):
         if reason is not None:
             for name in self.agent_names:
                 info[name]["done_reason"] = reason
+
+        if(episode_done or time_up) and self.episode_log_writer is not None:
+            ep_len = self._step_count  # number of env steps in this episode
+            final_coverage = int(self.visited.sum())
+            final_targets_found = len(self.found_targets)
+            
+            team_reward_total = sum(
+                self.ep_sums[name]["sum_reward_total"] 
+                for name in self.agent_names
+            )
+
+            for name in self.agent_names:
+                s = self.ep_sums[name]
+                self.episode_log_writer.writerow([
+                    self.episode_count,
+                    name,
+                    ep_len,
+                    s["sum_newly_marked"],
+                    final_coverage,
+                    final_targets_found,
+                    float(self.ep_team_reward),
+                    s["sum_team_reward_share"],
+                    s["sum_coverage_bonus"],
+                    s["sum_time_penalty"],
+                    s["sum_prox_pen"],
+                    s["sum_coll_pen"],
+                    s["sum_obsDistance_penalty"],
+                    s["sum_idle_penalty"],
+                    s["sum_progress_pen"],
+                    s["sum_reward_total"],
+                    float(team_reward_total),
+                    reason,
+                ])
+            self.episode_log_handle.flush()
+
         return obs, reward, terminated, truncated, info
     
     def render(self):
@@ -846,4 +1070,11 @@ class MultiAgentSAR(MultiAgentEnv):
             try: self.step_log_handle.close()
             except Exception: pass
             self.step_log_handle = None
+
+        if hasattr(self, "episode_log_handle") and self.episode_log_handle is not None:
+            try:
+                self.episode_log_handle.close()
+            except Exception:
+                pass
+            self.episode_log_handle = None
 
