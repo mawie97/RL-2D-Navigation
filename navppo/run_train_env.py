@@ -18,7 +18,7 @@ csv_log_path = os.path.join(base_dir, "self_log.csv")
 model_dir = os.path.join(base_dir, "models")
 env_dir = os.path.join(base_dir, "envs")
 seed_value = 1234
-num_episodes = 1500
+num_episodes = 600
 
 print("[INFO] Loaded XMLs:", xml_paths)
 
