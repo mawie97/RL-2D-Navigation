@@ -1,0 +1,10 @@
+name: sar
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - mujoco
+  - pytorch
+  - gymnasium
+  - imageio
+prefix: /home/matsbw/miniconda/envs/sar
