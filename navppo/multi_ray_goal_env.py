@@ -282,6 +282,7 @@ class MujocoGoalEnv(gym.Env):
             status = "Collision"
             if hasattr(self, "episode_log_writer"):
                 self.episode_log_writer.writerow([self.episode_count, status])
+            self.episode_log_file.flush()
             done = True
                     
         current_pos = self.data.xpos[self.agent_id][:2]
@@ -306,6 +307,7 @@ class MujocoGoalEnv(gym.Env):
             status = "Out_of_bounds"
             if hasattr(self, "episode_log_writer"):
                 self.episode_log_writer.writerow([self.episode_count, status])
+            self.episode_log_file.flush()
             done = True
 
         # End episode if agent reaches the goal
@@ -315,6 +317,7 @@ class MujocoGoalEnv(gym.Env):
             if hasattr(self, "episode_log_writer"):
                 self.episode_log_writer.writerow([self.episode_count, status])
             print("Goal reached!")
+            self.episode_log_file.flush()
             done = True
         
         # End episode if max steps reached
@@ -324,6 +327,7 @@ class MujocoGoalEnv(gym.Env):
             status = "Over_max_steps"
             if hasattr(self, "episode_log_writer"):
                 self.episode_log_writer.writerow([self.episode_count, status])
+            self.episode_log_file.flush()
             done = True
             
         if hasattr(self, "step_log_writer"):
