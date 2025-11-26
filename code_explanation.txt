@@ -1,0 +1,71 @@
+1. Start with what we tried to do
+
+    We wanted to generate a grid that is guaranteed to be connected —
+    that is, every free cell must be reachable from the starting point.
+
+    There are two general ways to do that:
+
+    Use logic (Z3): write rules like
+    “each free cell must have exactly one parent,”
+    “ranks increase along parent links,” etc.
+    Then let a solver figure out a grid that satisfies all of them.
+
+    Use algorithms (BFS): build a grid step by step and then check that it’s connected.
+
+    We chose the first method at first — the solver approach — because it seemed elegant and gave formal guarantees by design.
+
+
+2. What the solver actually had to do
+
+    To a solver, our grid is not a picture — it’s a giant math puzzle.
+
+    Each cell (r, c) has a boolean wall[r][c] (wall or free).
+
+    Each free cell can pick one of 4 possible parents (north, south, east, west).
+
+    Each cell also has a rank (its distance from the start).
+
+    The solver must find one combination of all these variables
+    that satisfies all the constraints simultaneously.
+
+    For a 20×20 grid:
+
+    That’s 400 cells.
+
+    Each cell has 1 wall bit + 4 parent bits + 1 rank integer = ≈ 6 unknowns.
+
+    Roughly → 2,400 variables plus hundreds of logical relationships between them.
+
+    The solver has to search through a huge number of possible combinations, while reasoning about the arithmetic constraints (rank[r][c] == rank[parent] + 1) — which turns this into a SAT + integer reasoning problem.
+
+
+3. Why this becomes slow
+
+    Solvers like Z3 are symbolic reasoners. They don’t build the grid directly — they explore logical possibilities.
+
+    They must consider every possible parent configuration, every possible wall layout, and every valid ranking at once, until they find one that works.
+
+    The search space grows exponentially:
+
+    For 10×10 (100 cells), it’s already large but still feasible.
+
+    For 13×13 (169 cells), it explodes — there are billions of possibilities.
+
+    For 15×15 or 20×20, the solver can’t finish in reasonable time, so it gives up with “unknown” or “timeout.”
+
+    So while Z3 is powerful, it’s not a generator — it’s a proof engine. It’s great for showing that some configuration exists, but terrible at constructing large combinatorial structures like grids.
+
+5. Why the BFS method solved it
+
+    Instead of having Z3 discover a grid, we just generate one directly (procedurally).
+
+    Start with one free cell -> Randomly expand to neighbors -> Ensure all new cells are attached to the existing region.
+
+    This guarantees connectivity by construction — no need to reason symbolically.
+
+    Then we can check properties like connectivity, dead-ends, and corridors using BFS, which is:
+        a) deterministic (always finds the true result),
+        b) linear in the number of cells (O(H×W)),
+        c) fast enough for grids of 50×50 or more.
+
+    So the BFS approach does the same logical check, but explicitly on one grid rather than symbolically on all possible grids.
