@@ -1,0 +1,1 @@
+Episode,Step,pre_x,pre_y,current_x,current_y,target_x,target_y,delta_x,delta_y,pre_distance,current_distance,dist_value,RE: dis_change,RE: distance,RE: obstacle_avoidance,RE: deadend_penalty,RE: escape_reward,Total: reward,Status
