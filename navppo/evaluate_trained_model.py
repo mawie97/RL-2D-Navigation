@@ -7,7 +7,7 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from multi_ray_goal_env import MujocoGoalEnv
 
 current_dir = os.path.dirname(__file__)
-xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'train','setup_3'))
+xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'test'))
 xml_paths = sorted([os.path.join(xml_base_dir, f) for f in os.listdir(xml_base_dir) if f.endswith(".xml")])
 
 current_setup = "dead_setup_2_noise_0.00"

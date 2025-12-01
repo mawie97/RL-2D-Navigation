@@ -32,23 +32,27 @@
         </body>
         
 
-        <body name="goal" pos="-15.0 13.0 0">
+        <body name="goal" pos="-3.0 -5.0 0">
             <geom name="goal_geom" type="plane" size="0.5 0.5 1" pos="0 0 0" rgba="1 0 0 1"/>
         </body>
         
 
-        <body name="agent" pos="15.0 -15.0 0.5">
+        <body name="agent" pos="1.0 4.0 0.5">
             <joint name="j1" type="slide" axis ="1 0 0 "/>
             <joint name="j2" type="slide" axis ="0 1 0 "/>
             <geom name="agent_geom" type="box" size="0.5 0.5 0.5" rgba="1 1 0 1"/>
         </body>
 
-<!-- OBSTACLES -->
+
+        <body name="obstacle1" pos="0.0 1.0 0.5">
+            <geom name="obstacle1_geom" type="box" size="0.3 0.3 0.3" rgba="0 1 0 1"/>
+        </body>
+    
 
     </worldbody>
 
     <sensor>
-<!-- SENSORS -->
+        <distance name="dist1" geom1="agent_geom" geom2="obstacle1_geom" cutoff="1.5"/>
     </sensor>
 
     <actuator>

@@ -10,8 +10,8 @@ import numpy as np
 SEED = 123
 random.seed(SEED)
 
-BASE_TEMPLATE_PATH = "../../layouts/base/base_layout.xml"
-OUTPUT_DIR = "../../layouts/eval/"
+BASE_TEMPLATE_PATH = "layouts/base/base_layout.xml"
+OUTPUT_DIR = "layouts/eval_new/"
 
 GOAL_NAME = "goal"
 AGENT_NAME = "agent"
@@ -286,24 +286,20 @@ def generate_variants(seed=None):
     forbidden = get_occupied_cells(agent_pos, agent_size) | get_occupied_cells(goal_pos, goal_size)
 
     # obstacle_setups: n_obstacles: (list of manhattan distances, corridor_width)
-    # This is for training setups
-    obstacle_setups = {
-        0: ([0], 0),
-        1: ([1, 2, 3], 0),  # Only one obstacle in bresenham line
-        3: ([3, 6, 9], 1),
-        5: ([3, 6, 9], 1),
-        7: ([3, 6, 9], 0),
-        9: ([3, 6, 9], 0),
-    }
+    # # This is for training setups
+    # obstacle_setups = {
+    #     15: ([3, 6, 9], 0),
+    #     20: ([3, 6, 9], 0),
+    #     35: ([3, 6, 9], 0),
+    #     30: ([3, 6, 9], 0),
+    # }
     
     # This is for evaluation setup
     obstacle_setups = {
-        0: ([0], 0),
-        2: ([1], 1),
-        4: ([3], 1),
-        6: ([3], 0),
-        8: ([3], 0),
-        10: ([3], 0),
+        20: ([3, 6, 9], 3),
+        25: ([3, 6, 9], 3),
+        30: ([3, 6, 9], 4),
+        35: ([3, 6, 9], 5),
     }
     
     # obstacle_setups = {
@@ -315,7 +311,7 @@ def generate_variants(seed=None):
             # variant_name = f"n{n_obstacles}_dist{dist}_w{corridor_width}"
             
             # For evaluation layouts
-            variant_name = f"eval_n{n_obstacles}_dist{dist}_w{corridor_width}"
+            variant_name = f"n{n_obstacles}_dist{dist}_w{corridor_width}"
             print(f"Generating variant {variant_name}")
 
             forbidden_cells = set(forbidden)
