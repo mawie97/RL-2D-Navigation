@@ -9,7 +9,7 @@ import os
 env_class = MujocoGoalEnv
 
 current_dir = os.path.dirname(__file__)  # scripts/train
-xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'train', 'setup_2'))
+xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'train', 'setup_3'))
 base_dir = os.path.abspath(os.path.join(current_dir, 'runs', 'dead_setup_2_noise_0.00'))
 xml_paths = sorted([os.path.join(xml_base_dir, f) for f in os.listdir(xml_base_dir) if f.endswith(".xml")])
 

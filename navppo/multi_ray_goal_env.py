@@ -49,7 +49,7 @@ class EpisodeCounterCallback(BaseCallback):
         return True
 
 class MujocoGoalEnv(gym.Env):
-    def __init__(self, csv_log_path, xml_paths):
+    def __init__(self, csv_log_path, xml_paths, headless = False):
         super(MujocoGoalEnv, self).__init__()
         
         self.xml_paths = xml_paths
@@ -73,7 +73,9 @@ class MujocoGoalEnv(gym.Env):
         self.steps_since_improvement = 0
         self.prev_dist_to_deadend = None
         self.stuck = False
-
+        self.deadend_goal_dist_at_def = None
+        
+        self.headless = headless
         print(" ")
         print(f" path : {self.xml_paths}")
         print(" ")
@@ -95,10 +97,10 @@ class MujocoGoalEnv(gym.Env):
                 'RE: dis_change',
                 'RE: distance',
                 'RE: obstacle_avoidance',
-                'RE: deadend_penalty',
                 'RE: escape_reward',
                 'Total: reward',
-                'Status'
+                'Status',
+                'Stuck?'
             ])
 
             # 2. Episode-level log
@@ -153,6 +155,7 @@ class MujocoGoalEnv(gym.Env):
         self.steps_since_improvement = 0
         self.prev_dist_to_deadend = None
         self.stuck = False
+        self.deadend_goal_dist_at_def = None
     
     def _find_dist_sensor_ids(self):
         dist_sensor_ids = []
@@ -225,14 +228,13 @@ class MujocoGoalEnv(gym.Env):
         if seed is not None:
             self.seed(seed)
         self.episode_count += 1
-        print (" ")
         if self.num_xmls > 1 and self.episode_count > 1 and self.episode_count % self.switch_every == 0:
             self._switch_model()
             # print(f"Switch model")
-        print(f"current episode: {self.episode_count}, current_xml file: {self.xml_paths[self.current_xml_index]}")
+        # print(f"current episode: {self.episode_count}, current_xml file: {self.xml_paths[self.current_xml_index]}")
         mujoco.mj_resetData(self.model, self.data)
         mujoco.mj_step(self.model, self.data)
-        
+        print(f"current episode: {self.episode_count}")
         self._reset_episode_state()
         obs = self._get_obs()
         return obs, {}
@@ -277,7 +279,7 @@ class MujocoGoalEnv(gym.Env):
 
         # End episode if collision detected
         if collided:
-            print("Collision detected!")
+            # print("Collision detected!")
             reward -= 100
             status = "Collision"
             if hasattr(self, "episode_log_writer"):
@@ -291,18 +293,23 @@ class MujocoGoalEnv(gym.Env):
         # print(f"{current_distance_to_goal}")
         
         # New added Update progress
-        self._update_progress(current_distance_to_goal)
+        self._update_progress(current_distance_to_goal, current_pos)
         # if stuck, memorize this region as a deadend
-        self.stuck = self.is_stuck()
+        new_stuck = self.is_stuck()
+        near_old_deadend = self.near_known_deadend(current_pos)
+
+        self.stuck = new_stuck or near_old_deadend
+
         if self.stuck:
+            # print(f"agent is tuck in episode {self.episode_count}")
             self._add_deadend_center(current_pos)
 
 
-        sum_reward, distance_change_reward, distance_reward, dist_obstacle_reward, deadend_penalty, escape_reward = self._calculate_rewards(current_pos, current_distance_to_goal)
+        sum_reward, distance_change_reward, distance_reward, dist_obstacle_reward, escape_reward = self._calculate_rewards(current_pos, current_distance_to_goal)
         reward += sum_reward
         
         if self._is_out_of_bounds(current_pos):
-            print(f"Out of bounds: {current_pos}")
+            # print(f"Out of bounds: {current_pos}")
             reward -= 100
             status = "Out_of_bounds"
             if hasattr(self, "episode_log_writer"):
@@ -316,20 +323,21 @@ class MujocoGoalEnv(gym.Env):
             status = "Goal_reached"
             if hasattr(self, "episode_log_writer"):
                 self.episode_log_writer.writerow([self.episode_count, status])
-            print("Goal reached!")
+            # print("Goal reached!")
             self.episode_log_file.flush()
             done = True
         
         # End episode if max steps reached
         if self.steps >= self.max_steps:
-            print(f"Exceed max steps!  Max Steps: {self.max_steps}")
+            # print(f"Exceed max steps!  Max Steps: {self.max_steps}")
             reward -= 100
             status = "Over_max_steps"
             if hasattr(self, "episode_log_writer"):
                 self.episode_log_writer.writerow([self.episode_count, status])
             self.episode_log_file.flush()
             done = True
-            
+
+        # Log  
         if hasattr(self, "step_log_writer"):
             self.step_log_writer.writerow([
                 self.episode_count,
@@ -344,10 +352,10 @@ class MujocoGoalEnv(gym.Env):
                 distance_change_reward,
                 distance_reward,
                 dist_obstacle_reward,
-                deadend_penalty, 
                 escape_reward,
                 reward,
-                status
+                status,
+                self.stuck
             ])
 
         self.prev_pos = np.copy(current_pos)
@@ -357,7 +365,7 @@ class MujocoGoalEnv(gym.Env):
         return obs, reward, done, False, {}
     
     def _add_deadend_center(self, current_pos):
-        MERGE_RADIUS = 0.5
+        MERGE_RADIUS = 1
         current_pos = np.array(current_pos)
 
         for c in self.deadend_centers:
@@ -365,7 +373,27 @@ class MujocoGoalEnv(gym.Env):
                 return
 
         self.deadend_centers.append(current_pos)
-        print("New deadend center:", current_pos)
+        print(f"Add deadend center {current_pos} at {self.steps}")
+        # print("New deadend center:", current_pos)
+        
+        current_distance_to_goal = np.linalg.norm(current_pos - self.goal_pos)
+        self.deadend_goal_dist_at_def = current_distance_to_goal
+    
+    def near_known_deadend(self, current_pos, radius=None):
+        """
+        Returns True if the agent is within `radius` of any stored deadend center.
+        """
+        if not self.deadend_centers:
+            return False
+        
+        if radius is None:
+            radius = self.DEADEND_RADIUS
+
+        current_pos = np.array(current_pos)
+        for c in self.deadend_centers:
+            if np.linalg.norm(current_pos - c) < radius:
+                return True
+        return False
 
     # If the steps is 0, then initialize the original_agent position, previous position and distance
     def _initialize_tracking(self):
@@ -415,22 +443,19 @@ class MujocoGoalEnv(gym.Env):
         dist_obstacle_reward = self.check_obstacle_distance() # Reward range [-1, 0]
         
         # Special case: dead end
-        deadend_penalty = 0.0
         escape_reward = 0.0
+        moving_away_from_deadend = False
+        
         if self.deadend_centers:
             dists = [np.linalg.norm(current_pos - c) for c in self.deadend_centers]
             min_d = min(dists)
-            
-            if min_d < self.DEADEND_RADIUS:
-                # Strong penalty near the center, fades to 0 at the radius edge
-                deadend_penalty = self.DEADEND_PENALTY * (self.DEADEND_RADIUS - min_d) / self.DEADEND_RADIUS
-                print(f"Deadend penalty is {deadend_penalty}")
             
             if self.prev_dist_to_deadend is not None:
                 delta_dead = min_d - self.prev_dist_to_deadend
                 ESCAPE_WEIGHT = 0.5
                 escape_reward = ESCAPE_WEIGHT * np.clip(delta_dead / 0.15, -1, 1) # if delta_dead > 0 encourage moving away else moving toward dead end
-
+                if delta_dead > 0:
+                    moving_away_from_deadend = True
             self.prev_dist_to_deadend = min_d
         else:
             self.prev_dist_to_deadend = None
@@ -441,15 +466,26 @@ class MujocoGoalEnv(gym.Env):
             # temporarily ignore the goal-distance attraction to encourage the get away
             distance_reward = 0.0
             distance_change_reward = 0.0
-            time_penalty = TIME_PENALTY + STUCK_PENALTY
-        
-        else:
-            pass
-        
-        # Emphasize the reward for avoiding obstacles
-        sum_reward = (0.5 * distance_reward + 1 * distance_change_reward + 2 * dist_obstacle_reward + deadend_penalty + escape_reward + time_penalty)
 
-        return sum_reward, distance_change_reward, distance_reward, dist_obstacle_reward, deadend_penalty, escape_reward
+            if (self.deadend_goal_dist_at_def is not None):
+                goal_longer_than_def = current_distance_to_goal > self.deadend_goal_dist_at_def
+                
+                # Stuck & moving away & further from goal than definition
+                if goal_longer_than_def and moving_away_from_deadend:
+                    escape_reward += 0.5 # Give extra 0.5
+                
+                # Stuck & moving away & not further from goal than definition: no stuck penalty, no reward only obstacle + time_penalty
+                if not goal_longer_than_def and moving_away_from_deadend:
+                    escape_reward = 0
+                
+                # Stuck & not moving away
+                if  not moving_away_from_deadend:
+                    time_penalty = TIME_PENALTY + STUCK_PENALTY
+            
+        # Emphasize the reward for avoiding obstacles
+        sum_reward = (0.5 * distance_reward + 1 * distance_change_reward + 2 * dist_obstacle_reward + escape_reward + time_penalty)
+
+        return sum_reward, 1 * distance_change_reward, 0.5 * distance_reward, 2 * dist_obstacle_reward, escape_reward
     
     def check_obstacle_distance(self):
         obstacle_distance_penalty = 0.0
@@ -479,8 +515,7 @@ class MujocoGoalEnv(gym.Env):
 
         small_region = (x_range < RANGE_THRESH) and (y_range < RANGE_THRESH)
         no_progress = (self.steps_since_improvement >= NO_PROGRESS_STEPS)
-        if small_region and no_progress:
-            print("Agent is stuck")
+
         return small_region and no_progress
     
     def _is_out_of_bounds(self, pos):
@@ -523,6 +558,9 @@ class MujocoGoalEnv(gym.Env):
         return current_distance_to_goal < GOAL_THRESHOLD
     
     def render(self):
+        if getattr(self, "headless", True):
+           # Do nothing in headless mode
+           return
         # Launch viewer once
         if not hasattr(self, "viewer") or self.viewer is None:
             try:
@@ -534,13 +572,31 @@ class MujocoGoalEnv(gym.Env):
         if self.viewer is not None:
             self.viewer.sync()
     
-    def _update_progress(self, current_distance_to_goal):
+    def _update_progress(self, current_distance_to_goal, current_pos):
         """
         Check if it stopped making progress
         """
 
-        progress = 0.05  # minimum improvement progress
+        progress = 0.05  # minimum improvement progress for goal progress
+        escape_progress = 0.05 # for deadend escape
+        
+        # # Version with escape_progress
+        # if current_distance_to_goal < self.best_distance - progress:
+        #     self.best_distance = current_distance_to_goal
+        #     self.steps_since_improvement = 0
+        #     return
 
+        # if self.deadend_centers and self.prev_dist_to_deadend is not None:
+        #     dists = [np.linalg.norm(current_pos - c) for c in self.deadend_centers]
+        #     min_d = min(dists)
+        #     if min_d > self.prev_dist_to_deadend + escape_progress:
+        #         # Consider that as progress too (escaping trap)
+        #         self.steps_since_improvement = 0
+        #         return
+        
+        # self.steps_since_improvement += 1
+        
+        # Version without progress
         if current_distance_to_goal < self.best_distance - progress:
             self.best_distance = current_distance_to_goal
             self.steps_since_improvement = 0
