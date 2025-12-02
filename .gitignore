@@ -260,3 +260,6 @@ gradle-app.setting
 
 # End of https://www.toptal.com/developers/gitignore/api/gradle,java,python,macos
 .vscode/*
+
+*.tfevents.*
+*.csv
