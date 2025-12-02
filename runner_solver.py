@@ -1,14 +1,12 @@
 import os
 import random
-from typing import Tuple
+import argparse
 
 import mujoco
 from mujoco import viewer
 
 from generator_solver import SymbolicScenarioGenerator, GridSpec, SpawnSpec
 from generator_proc import ProceduralScenarioGenerator, GridSpec as ProcGridSpec
-
-Coord = Tuple[int, int]
 
 
 def print_grid(grid):
@@ -30,8 +28,6 @@ def build_scenario_filepath(
     prefix: str = "solver",
     ext: str = ".xml",
 ):
-    import os
-
     dir_path = os.path.join(base_root, scenario_type)
     os.makedirs(dir_path, exist_ok=True)
 
@@ -56,20 +52,54 @@ def build_scenario_filepath(
     return os.path.join(dir_path, filename)
 
 
-if __name__ == "__main__":
-    seed = 7
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="Pure symbolic grid generator (Z3)"
+    )
+
+    p.add_argument("--H", type=int, default=10)
+    p.add_argument("--W", type=int, default=10)
+    p.add_argument("--seed", type=int, default=7)
+
+    p.add_argument(
+        "--scenario",
+        choices=["standard", "deadend", "corridor"],
+        default="corridor",
+    )
+
+    p.add_argument("--min-deadend-depth", type=int, default=4)
+    p.add_argument("--min-corridor-length", type=int, default=4)
+
+    p.add_argument("--exact-walls", type=int, default=40)
+    p.add_argument("--min-walls", type=int, default=None)
+    p.add_argument("--max-walls", type=int, default=None)
+
+    p.add_argument(
+        "--no-viewer",
+        action="store_true",
+        help="If set, do not launch MuJoCo viewer",
+    )
+
+    return p.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    seed = args.seed
     rng = random.Random(seed)
 
-    H, W = 10, 10
+    H, W = args.H, args.W
 
-    use_deadend = False
-    use_corridor = True
+    use_deadend = (args.scenario == "deadend")
+    use_corridor = (args.scenario == "corridor")
 
-    min_deadend_depth = 4
-    min_corridorLength = 4
-    exact_walls = 40
-    min_walls = None
-    max_walls = None
+    min_deadend_depth = args.min_deadend_depth
+    min_corridorLength = args.min_corridor_length
+
+    exact_walls = args.exact_walls
+    min_walls = args.min_walls
+    max_walls = args.max_walls
 
     sym_grid = GridSpec(
         H=H,
@@ -128,6 +158,11 @@ if __name__ == "__main__":
     proc.write_xml(xml, path)
     print(f"Saved {path}")
 
-    model = mujoco.MjModel.from_xml_path(path)
-    data = mujoco.MjData(model)
-    viewer.launch(model, data)
+    if not args.no_viewer:
+        model = mujoco.MjModel.from_xml_path(path)
+        data = mujoco.MjData(model)
+        viewer.launch(model, data)
+
+
+if __name__ == "__main__":
+    main()

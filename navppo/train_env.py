@@ -35,7 +35,7 @@ def train_ppo(
     env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_reward=10.0)
 
     # Step 2: Create and train model
-    model = PPO("MlpPolicy", env, verbose=1, ent_coef=0.01, seed = seed_value, tensorboard_log=log_dir)
+    model = PPO("MlpPolicy", env, verbose=1, ent_coef=0.01, seed = seed_value, tensorboard_log=log_dir, device="cpu",)
     
     # Step 3: Log for the tensorboard
     new_logger = configure(log_dir, ["csv", "tensorboard"])

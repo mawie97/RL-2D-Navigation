@@ -1,5 +1,6 @@
 import os
 import random
+import argparse
 from typing import List, Tuple, Optional
 from collections import deque
 
@@ -14,7 +15,7 @@ Coord = Tuple[int, int]
 
 
 # ------------------------------------------------------------
-# Filename builder
+# Filename builder (unchanged logic, now fed from CLI)
 # ------------------------------------------------------------
 def build_scenario_filepath(
     base_root: str,
@@ -22,7 +23,7 @@ def build_scenario_filepath(
     H: int,
     W: int,
     seed: int,
-    # wall constraints
+    # wall constraints (for the FULL grid)
     exact_walls: Optional[int] = None,
     min_walls: Optional[int] = None,
     max_walls: Optional[int] = None,
@@ -103,6 +104,7 @@ def embed_block(
 
 # ------------------------------------------------------------
 # Z3 placement of agents/targets on a fixed grid
+# (unchanged, just called from main with CLI params)
 # ------------------------------------------------------------
 def place_entities_with_solver(
     grid: List[List[bool]],
@@ -118,6 +120,7 @@ def place_entities_with_solver(
     max_target_target: Optional[int] = None,
     exact_target_target: Optional[int] = None,
     pinned_target_cells: Optional[List[Coord]] = None,
+    pinned_agent_cells: Optional[List[Coord]] = None,
     z3_seed: Optional[int] = None,
 ) -> Tuple[List[Coord], List[Coord]]:
     H, W = len(grid), len(grid[0])
@@ -126,14 +129,13 @@ def place_entities_with_solver(
         (r, c) for r in range(H) for c in range(W) if not grid[r][c]
     ]
     n = len(free_cells)
+    pinned_agent_cells = pinned_agent_cells or []
     pinned_target_cells = pinned_target_cells or []
 
     if n < num_agents + num_targets:
         raise RuntimeError("Not enough free cells for agents + targets")
 
     def bfs_from_idx(idx: int) -> List[int]:
-        from collections import deque
-
         sr, sc = free_cells[idx]
         dgrid = [[-1] * W for _ in range(H)]
         if grid[sr][sc]:
@@ -175,6 +177,15 @@ def place_entities_with_solver(
 
     if len(all_vars) > 1:
         s.add(Distinct(*all_vars))
+
+        # Pin agents to specific free cells, if requested
+    for i, cell in enumerate(pinned_agent_cells):
+        if i >= num_agents:
+            raise ValueError("More pinned_agent_cells than num_agents")
+        if cell not in free_cells:
+            raise ValueError(f"Pinned agent cell {cell} is not a free cell")
+        idx = free_cells.index(cell)
+        s.add(agents[i] == idx)
 
     for j, cell in enumerate(pinned_target_cells):
         if j >= num_targets:
@@ -241,19 +252,138 @@ def place_entities_with_solver(
 
 
 # ------------------------------------------------------------
-# Main
+# CLI parsing
 # ------------------------------------------------------------
-if __name__ == "__main__":
-    master_seed = 7
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="Hybrid symbolic+procedural scenario generator"
+    )
+
+    # Grid sizes
+    p.add_argument("--full-H", type=int, default=20)
+    p.add_argument("--full-W", type=int, default=20)
+    p.add_argument("--block-H", type=int, default=10)
+    p.add_argument("--block-W", type=int, default=10)
+
+    # Block offset inside full grid (top-left corner of symbolic block)
+    p.add_argument(
+        "--offset-r",
+        type=int,
+        default=0,
+        help="Row offset of block inside full grid (top-left row index)",
+    )
+    p.add_argument(
+        "--offset-c",
+        type=int,
+        default=0,
+        help="Column offset of block inside full grid (top-left col index)",
+    )
+
+    # Scenario type
+    p.add_argument(
+        "--scenario",
+        choices=["standard", "deadend", "corridor"],
+        default="deadend",
+        help="Which symbolic structure to enforce in the block",
+    )
+
+    # Free-cell budgets
+    p.add_argument(
+        "--block-free",
+        type=int,
+        required=True,
+        help="Exact number of FREE cells inside the symbolic block",
+    )
+    p.add_argument(
+        "--total-free",
+        type=int,
+        required=True,
+        help="Exact number of FREE cells in the FULL grid",
+    )
+
+    # Seeds
+    p.add_argument("--seed", type=int, default=7, help="Master random seed")
+
+    # Structure parameters
+    p.add_argument(
+        "--deadend-depth",
+        type=int,
+        default=3,
+        help="Deadend chain length in edges (block-level)",
+    )
+    p.add_argument(
+        "--corridor-length",
+        type=int,
+        default=3,
+        help="Corridor chain length in edges (block-level)",
+    )
+
+    # Entity counts
+    p.add_argument("--num-agents", type=int, default=1)
+    p.add_argument("--num-targets", type=int, default=1)
+
+    # Whether to pin an agent onto the symbolic structure
+    p.add_argument(
+        "--pin-agent-on-structure",
+        action="store_true",
+        help="If set, pin agent 0 to the deadend endpoint or corridor midpoint",
+    )
+
+
+    # Distance constraints
+    def add_dist(prefix: str):
+        p.add_argument(f"--{prefix}-min", type=int, default=None)
+        p.add_argument(f"--{prefix}-max", type=int, default=None)
+        p.add_argument(f"--{prefix}-exact", type=int, default=None)
+
+    add_dist("aa")  # agent-agent
+    add_dist("tt")  # target-target
+    add_dist("at")  # agent-target
+
+    # Viewer toggle
+    p.add_argument(
+        "--no-viewer",
+        action="store_true",
+        help="If set, do not launch MuJoCo viewer",
+    )
+
+    return p.parse_args()
+
+
+# ------------------------------------------------------------
+# main
+# ------------------------------------------------------------
+def main():
+    args = parse_args()
+    master_seed = args.seed
     rng = random.Random(master_seed)
 
-    # ---------- symbolic block config ----------
-    block_H, block_W = 10, 10
-    use_deadend = True
-    use_corridor = False
-    min_deadend_depth = 3
-    min_corridorLength = 3
+    # ---------- sizes & sanity checks ----------
+    full_H, full_W = args.full_H, args.full_W
+    block_H, block_W = args.block_H, args.block_W
 
+    block_cells = block_H * block_W
+    full_cells = full_H * full_W
+
+    if args.block_free < 1 or args.block_free > block_cells:
+        raise ValueError(f"block-free must be in [1, {block_cells}]")
+    if args.total_free < args.block_free or args.total_free > full_cells:
+        raise ValueError(
+            f"total-free must be in [{args.block_free}, {full_cells}]"
+        )
+
+    # Convert FREE counts to WALL counts
+    exact_block_walls = block_cells - args.block_free
+    exact_full_walls = full_cells - args.total_free
+
+    # ---------- scenario flags ----------
+    use_deadend = (args.scenario == "deadend")
+    use_corridor = (args.scenario == "corridor")
+
+    min_deadend_depth = args.deadend_depth
+    min_corridorLength = args.corridor_length
+
+    # ---------- symbolic block config ----------
     sym_grid = SymGridSpec(
         H=block_H,
         W=block_W,
@@ -269,26 +399,34 @@ if __name__ == "__main__":
             min_deadend_depth=min_deadend_depth,
             min_corridorLength=min_corridorLength,
             z3_seed=z3_seed,
-            # no wall constraints here; procedural part handles min/max walls
-            exact_walls=8,
+            # single source of truth: walls in block from CLI
+            exact_walls=exact_block_walls,
             min_walls=None,
             max_walls=None,
         )
     )
-    
-    # FROM HERE YOU GENERATE THE REST OF THE GRID
-    full_H, full_W = 20, 20
-    offset = (0, 0)
+
+    # ---------- embed symbolic block into full grid ----------
+    off_r = args.offset_r
+    off_c = args.offset_c
+    offset = (off_r, off_c)
+
+    # sanity check: block must fit inside full grid at this offset
+    if off_r < 0 or off_c < 0 or off_r + block_H > full_H or off_c + block_W > full_W:
+        raise ValueError(
+            f"Block offset ({off_r}, {off_c}) with size {block_H}x{block_W} "
+            f"does not fit inside full grid {full_H}x{full_W}"
+        )
 
     base_grid = embed_block(full_H, full_W, block_bool, offset)
 
     root_small = spawn.start
     root_global = (offset[0] + root_small[0],
                    offset[1] + root_small[1])
-
+    
     deadend_path_global: List[Coord] = []
     dead_global: Optional[Coord] = None
-    if use_deadend and chosen_dead is not None:
+    if use_deadend and chosen_dead is not None: # If the deadend flag = True and 
         dead_global = (offset[0] + chosen_dead[0], offset[1] + chosen_dead[1])
         deadend_path_global = [
             (offset[0] + r, offset[1] + c)
@@ -307,7 +445,7 @@ if __name__ == "__main__":
             for (r, c) in corridor_path_block
         ]
         L_corr = len(corridor_path_block)
-        mid_idx_corr = L_corr // 2  # odd: exact middle, even: upper of two middles
+        mid_idx_corr = L_corr // 2
         mid_corr_block = corridor_path_block[mid_idx_corr]
         mid_corr_global = (offset[0] + mid_corr_block[0],
                            offset[1] + mid_corr_block[1])
@@ -319,8 +457,9 @@ if __name__ == "__main__":
     )
 
     # ---------- procedural fill config ----------
-    proc_min_walls = 20
-    proc_max_walls = 40
+    # We want EXACT total walls = exact_full_walls over the FULL grid.
+    proc_min_walls = exact_full_walls
+    proc_max_walls = exact_full_walls
 
     proc_gen = ProceduralScenarioGenerator(ProcGridSpec(H=full_H, W=full_W))
     grid_full = proc_gen.generate_with_requirements(
@@ -329,7 +468,7 @@ if __name__ == "__main__":
         max_walls=proc_max_walls,
         min_corridor=None,
         min_deadends=None,
-        min_deadend_depth=4,
+        min_deadend_depth=min_deadend_depth + 1,  # same default as before
         rng=rng,
         max_tries=200,
         base_grid=base_grid,
@@ -343,6 +482,7 @@ if __name__ == "__main__":
     if use_deadend and dead_global is not None:
         print("Dead-end endpoint (global):", dead_global)
         print("Dead-end path (global):", deadend_path_global)
+        print("Deadend length:", min_deadend_depth)
 
     if use_corridor:
         print("Corridor path (global):")
@@ -351,31 +491,27 @@ if __name__ == "__main__":
         print("Middle of corridor (global):", mid_corr_global)
 
     # ---------- distance constraints for entities ----------
-    num_agents = 1
-    num_targets = 1
+    num_agents = args.num_agents
+    num_targets = args.num_targets
 
-    aa_min = 5
-    aa_max = None
-    aa_exact = None
+    aa_min, aa_max, aa_exact = args.aa_min, args.aa_max, args.aa_exact
+    at_min, at_max, at_exact = args.at_min, args.at_max, args.at_exact
+    tt_min, tt_max, tt_exact = args.tt_min, args.tt_max, args.tt_exact
 
-    at_min = 30
-    at_max = None
-    at_exact = None
+    pinned_agents: List[Coord] = []
 
-    tt_min = 3
-    tt_max = None
-    tt_exact = None
-
-    pinned_targets: List[Coord] = []
-    if use_deadend and dead_global is not None:
-        pinned_targets.append(dead_global)
-    if use_corridor and mid_corr_global is not None:
-        pinned_targets.append(mid_corr_global)
+    if args.pin_agent_on_structure:
+        # Only if the user *wants* the agent pinned on the structure
+        if use_deadend and dead_global is not None:
+            pinned_agents.append(dead_global)
+        if use_corridor and mid_corr_global is not None:
+            pinned_agents.append(mid_corr_global)
+    # else: leave pinned_agents empty → no forced placement
 
     agent_cells, target_cells = place_entities_with_solver(
         grid_full,
-        num_agents=num_agents,
-        num_targets=num_targets,
+        num_agents=args.num_agents,
+        num_targets=args.num_targets,
         min_agent_agent=aa_min,
         max_agent_agent=aa_max,
         exact_agent_agent=aa_exact,
@@ -385,20 +521,16 @@ if __name__ == "__main__":
         min_target_target=tt_min,
         max_target_target=tt_max,
         exact_target_target=tt_exact,
-        pinned_target_cells=pinned_targets,
-        z3_seed=master_seed,
+        pinned_agent_cells=pinned_agents if pinned_agents else None,
+        pinned_target_cells=None,
+        z3_seed=rng.randint(0, 1_000_000),
     )
 
     print("Agents at:", agent_cells)
     print("Targets at:", target_cells)
 
     # ---------- decide scenario type ----------
-    if use_corridor:
-        scenario_type = "corridor"
-    elif use_deadend:
-        scenario_type = "deadend"
-    else:
-        scenario_type = "standard"
+    scenario_type = args.scenario
 
     base_root = "scenarios"
 
@@ -408,9 +540,9 @@ if __name__ == "__main__":
         H=full_H,
         W=full_W,
         seed=master_seed,
-        exact_walls=None,
-        min_walls=proc_min_walls,
-        max_walls=proc_max_walls,
+        exact_walls=exact_full_walls,
+        min_walls=None,
+        max_walls=None,
         deadend_depth=min_deadend_depth if use_deadend else None,
         corridor_length=min_corridorLength if use_corridor else None,
         aa_min=aa_min, aa_max=aa_max, aa_exact=aa_exact,
@@ -430,6 +562,11 @@ if __name__ == "__main__":
     proc_gen.write_xml(xml, path)
     print(f"Saved {path}")
 
-    model = mujoco.MjModel.from_xml_path(path)
-    data = mujoco.MjData(model)
-    viewer.launch(model, data)
+    if not args.no_viewer:
+        model = mujoco.MjModel.from_xml_path(path)
+        data = mujoco.MjData(model)
+        viewer.launch(model, data)
+
+
+if __name__ == "__main__":
+    main()

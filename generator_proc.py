@@ -168,6 +168,14 @@ class ProceduralScenarioGenerator:
         target_free_raw = max(1, min(total, target_free_raw))
         target_free = max(base_free, target_free_raw)
 
+        print("DEBUG: total cells:", total)
+        print("DEBUG: target_walls:", target_walls)
+        print("DEBUG: base_free:", base_free)
+        print("DEBUG: target_free:", target_free)
+        print("DEBUG: len(free_set) initially:", len(free_set))
+        print("DEBUG: frozen size:", len(frozen))
+        print("DEBUG: initial frontier size:", len(frontier))
+
         # carve with frontier
         while len(free_set) < target_free and frontier:
             r, c = rng.choice(tuple(frontier))
@@ -192,6 +200,8 @@ class ProceduralScenarioGenerator:
             if not candidates:
                 break
             add_free(rng.choice(candidates))
+
+        print("DEBUG: final free_set size:", len(free_set))
 
         return grid
 
@@ -236,16 +246,16 @@ class ProceduralScenarioGenerator:
         self,
         grid: List[List[bool]],
         model_name: str = "simple_navigation",
-        arena_half_extent: float = 10.0,
-        obstacle_height: float = 0.5,
+        arena_half_extent: float = 20.0,
+        height: float = 0.25,
         agent_cells: Optional[List[Coord]] = None,
         target_cells: Optional[List[Coord]] = None,
     ) -> str:
         H, W = self.grid.H, self.grid.W
         A = float(arena_half_extent)
-        cell_w = (2.0 * A) / W
+        cell_w = (2.0 * A) / W # cell size = 2x2
         cell_h = (2.0 * A) / H
-        half_w, half_h = cell_w * 0.5, cell_h * 0.5
+        half_w, half_h = cell_w * 0.40, cell_h * 0.40 # obstacle size = 2 * 2 * 0.4 = 1.6
 
         agent_cells = agent_cells or []
         target_cells = target_cells or []
@@ -262,21 +272,21 @@ class ProceduralScenarioGenerator:
                     continue
                 x, y = cell_to_xy(r, c)
                 obstacles_xml.append(
-                    f'<body name="ob_{r}_{c}" pos="{x:.4f} {y:.4f} {obstacle_height:.3f}">'
-                    f'  <geom type="box" size="{half_w:.4f} {half_h:.4f} {obstacle_height:.3f}" '
+                    f'<body name="ob_{r}_{c}" pos="{x:.4f} {y:.4f} {height:.3f}">'
+                    f'  <geom type="box" size="{half_w:.4f} {half_h:.4f} {height:.3f}" '
                     f'        rgba="1 0 0 1" contype="1" conaffinity="1"/>'
                     f'</body>'
                 )
         obstacles_text = "\n        ".join(obstacles_xml)
 
         agent_bodies = []
-        for i, (r, c) in enumerate(agent_cells):
+        for i, (r, c) in enumerate(agent_cells): # agents are 1.5 x 1.5
             x, y = cell_to_xy(r, c)
             agent_bodies.append(f"""
-            <body name="agent_{i}" pos="{x:.4f} {y:.4f} 0.5">
+            <body name="agent_{i}" pos="{x:.4f} {y:.4f} {height:.3f}">
                 <joint name="agent_{i}_j1" type="slide" axis="1 0 0"/>
                 <joint name="agent_{i}_j2" type="slide" axis="0 1 0"/>
-                <geom  name="agent_geom_{i}" type="box" size="0.3 0.3 0.3" rgba="1 1 0 1"/>
+                <geom  name="agent_geom_{i}" type="box" size="0.25 0.25 {height:.3f}" rgba="1 1 0 1"/> 
             </body>
             """)
 

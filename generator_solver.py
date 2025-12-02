@@ -147,6 +147,12 @@ class SymbolicScenarioGenerator:
                 for c in range(W):
                     nbs = [(nr, nc) for (nr, nc) in nbrs(r, c) if inb(nr, nc)]
 
+                    # prevent deadend path cells from lying on the outer boundary of the block
+                    # This keeps their free-neighbor degree stable when the procedural stage
+                    # carves outside the symbolic block.
+                    if r == 0 or r == H - 1 or c == 0 or c == W - 1:
+                        s.add(Not(dead_path[r][c]))
+
                     # degree in the deadend path-subgraph
                     degP = Sum(If(dead_path[nr][nc], 1, 0) for (nr, nc) in nbs)
                     # degree in full free graph
@@ -213,6 +219,12 @@ class SymbolicScenarioGenerator:
             for r in range(H):
                 for c in range(W):
                     nbs = [(nr, nc) for (nr, nc) in nbrs(r, c) if inb(nr, nc)]
+
+                    # prevent corridor path cells from lying on the outer boundary of the block
+                    # for the same reason as the deadend path: we don't want procedural carving
+                    # outside the block to change their free-neighbor degree.
+                    if r == 0 or r == H - 1 or c == 0 or c == W - 1:
+                        s.add(Not(path[r][c]))
 
                     degP = Sum(If(path[nr][nc], 1, 0) for (nr, nc) in nbs)
                     degFree = Sum(If(Not(wall[nr][nc]), 1, 0) for (nr, nc) in nbs)
