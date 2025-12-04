@@ -270,55 +270,94 @@ def insert_obstacles_and_sensors(xml_text, obstacle_positions):
     sensors_xml = "\n".join(generate_sensor(i + 1) for i in range(len(obstacle_positions)))
     return xml_text.replace("<!-- OBSTACLES -->", obstacles_xml).replace("<!-- SENSORS -->", sensors_xml)
 
+#Adding 
+def sample_agent_goal_cells(min_manhattan=40, max_tries=1000):
+    """
+    Randomly sample two grid cells for agent and goal
+    with at least `min_manhattan` distance between them.
+    """
+    for _ in range(max_tries):
+        ax = random.randrange(GRID_WIDTH)
+        ay = random.randrange(GRID_HEIGHT)
+        gx = random.randrange(GRID_WIDTH)
+        gy = random.randrange(GRID_HEIGHT)
+        d = abs(ax - gx) + abs(ay - gy)
+        if d >= min_manhattan:
+            return (ax, ay), (gx, gy)
+    raise RuntimeError("Could not sample valid agent/goal cells")
+
+def update_agent_goal_positions(xml_text, agent_pos, goal_pos):
+    """
+    agent_pos, goal_pos: (x, y) in world
+    """
+    root = ET.fromstring(xml_text)
+    ax, ay = agent_pos
+    gx, gy = goal_pos
+    for body in root.findall(".//body"):
+        name = body.get("name", "")
+        if name == AGENT_NAME:
+            body.set("pos", f"{ax} {ay} 0.5")
+        elif name == GOAL_NAME:
+            body.set("pos", f"{gx} {gy} 0.5")
+    return ET.tostring(root, encoding="unicode")
+
 # =========================
 # Main variant generator
 # =========================
+
 def generate_variants(seed=None):
     random.seed(seed)
     with open(BASE_TEMPLATE_PATH) as f:
         base_xml = f.read()
 
-    agent_cell, goal_cell = get_agent_goal_grid_positions(base_xml)
-    rectangle = set(rectangle_cells(agent_cell, goal_cell))
-    print(f"Agent cell: {agent_cell}, Goal cell: {goal_cell}")
-    print(f"rectangle: {rectangle}")
-    agent_pos, agent_size, goal_pos, goal_size = get_agent_goal_info(base_xml)
-    forbidden = get_occupied_cells(agent_pos, agent_size) | get_occupied_cells(goal_pos, goal_size)
+    # We only need sizes once (agent_size, goal_size)
+    # Positions from base are ignored because we'll randomize them.
+    _, agent_size, _, goal_size = get_agent_goal_info(base_xml)
 
     # obstacle_setups: n_obstacles: (list of manhattan distances, corridor_width)
-    # # This is for training setups
-    # obstacle_setups = {
-    #     15: ([3, 6, 9], 0),
-    #     20: ([3, 6, 9], 0),
-    #     35: ([3, 6, 9], 0),
-    #     30: ([3, 6, 9], 0),
-    # }
-    
-    # This is for evaluation setup
     obstacle_setups = {
-        20: ([3, 6, 9], 3),
-        25: ([3, 6, 9], 3),
-        30: ([3, 6, 9], 4),
-        35: ([3, 6, 9], 5),
+        10: ([3, 6, 9], 3),
+        15: ([3, 6, 9], 3),
+        25: ([3, 6, 9], 4),
+        30: ([3, 6, 9], 5),
     }
-    
-    # obstacle_setups = {
-    #     7: ([4, 5, 6], 0),
-    # }
-    
+
     for n_obstacles, (displacements, corridor_width) in obstacle_setups.items():
         for dist in displacements:
-            # variant_name = f"n{n_obstacles}_dist{dist}_w{corridor_width}"
-            
-            # For evaluation layouts
             variant_name = f"n{n_obstacles}_dist{dist}_w{corridor_width}"
             print(f"Generating variant {variant_name}")
+
+            # ---------- NEW: sample random agent & goal cells ----------
+            agent_cell, goal_cell = sample_agent_goal_cells(min_manhattan=5)
+            print(f"  Sampled agent_cell={agent_cell}, goal_cell={goal_cell}")
+
+            # Convert to world positions (with jitter)
+            agent_x, agent_y = grid_index_to_position_with_jitter(*agent_cell, jitter=0.5)
+            goal_x, goal_y = grid_index_to_position_with_jitter(*goal_cell, jitter=0.5)
+            agent_pos = (agent_x, agent_y)
+            goal_pos = (goal_x, goal_y)
+
+            # Grid rectangle between them (for allowed_cells)
+            rectangle = set(rectangle_cells(agent_cell, goal_cell))
+            print(f"  Rectangle cells: {len(rectangle)}")
+
+            # Forbidden cells from agent & goal footprints
+            forbidden = (
+                get_occupied_cells(agent_pos, agent_size)
+                | get_occupied_cells(goal_pos, goal_size)
+            )
+
+            # -----------------------------------------------------------
 
             forbidden_cells = set(forbidden)
             allowed_cells = rectangle
             
             if corridor_width > 0:
-                corridor_cells = corridor_around_bresenham_line(agent_cell[0], agent_cell[1], goal_cell[0], goal_cell[1], corridor_width)
+                corridor_cells = corridor_around_bresenham_line(
+                    agent_cell[0], agent_cell[1],
+                    goal_cell[0], goal_cell[1],
+                    corridor_width
+                )
                 allowed_cells = corridor_cells.intersection(rectangle)
                 print(" ")
                 print(f"Allowed cells after corridor {corridor_width}:  {allowed_cells}")
@@ -326,14 +365,13 @@ def generate_variants(seed=None):
                 print("    ")
             else:
                 allowed_cells = rectangle
-                # print(f"For {n_obstacles} dist {dist} corridor width {corridor_width}, allowed cells: {len(allowed_cells)}")
 
+            # === your obstacle placement logic unchanged, uses agent_cell, goal_cell, allowed_cells, forbidden_cells ===
             if n_obstacles == 0:
                 obstacle_positions = []
+
             elif n_obstacles == 1:
                 line_cells = bresenham_line(agent_cell[0], agent_cell[1], goal_cell[0], goal_cell[1])
-                # print (f"Bresenham line cells: {line_cells}")
-                # Filter line cells to allowed_cells and not forbidden
                 line_cells = [c for c in line_cells if c in allowed_cells and c not in forbidden_cells]
                 if not line_cells:
                     raise RuntimeError("No allowed cells on Bresenham line free for obstacle")
@@ -343,30 +381,19 @@ def generate_variants(seed=None):
                     chosen_cell = moved_cells[0]
                 obstacle_positions = [chosen_cell]
                 forbidden_cells.add(chosen_cell)
-                # print (f"Chosen obstacle position: {chosen_cell}")
+
             elif n_obstacles == 2:
                 line_cells = bresenham_line(agent_cell[0], agent_cell[1], goal_cell[0], goal_cell[1])
-                # print (f"Bresenham line cells: {line_cells}")
-                # Filter line cells to allowed_cells and not forbidden
                 line_cells = [c for c in line_cells if c in allowed_cells and c not in forbidden_cells]
                 
                 if len(line_cells) < 2:
                     raise RuntimeError("Not enough allowed cells on Bresenham line for 2 obstacles")
                 chosen_cells = random.sample(line_cells, 2)
-                if not line_cells:
-                    raise RuntimeError("No allowed cells on Bresenham line free for obstacle")
-                chosen_cell = random.choice(line_cells)
-                if dist > 0:
-                    moved_cells = move_obstacles_with_manhattan_distance([chosen_cell], dist, forbidden_cells, line_cells)
-                    chosen_cell = moved_cells[0]
                 obstacle_positions = chosen_cells
                 forbidden_cells.update(chosen_cells)
-                # print (f"Chosen obstacle position: {chosen_cell}")
-                
+
             elif n_obstacles == 3:
                 line_cells = bresenham_line(agent_cell[0], agent_cell[1], goal_cell[0], goal_cell[1])
-                # print(f"Bresenham line cells: {line_cells}")
-                
                 allowed_line_cells = [c for c in line_cells if c in allowed_cells and c not in forbidden_cells]
                 if not allowed_line_cells:
                     raise RuntimeError("No allowed cells on Bresenham line free for obstacle")
@@ -384,7 +411,9 @@ def generate_variants(seed=None):
                 all_obstacles = [path_obstacle] + remaining_obstacles
                 
                 if dist > 0:
-                    moved_obstacles = move_obstacles_with_manhattan_distance(all_obstacles, dist, forbidden_cells, allowed_cells)
+                    moved_obstacles = move_obstacles_with_manhattan_distance(
+                        all_obstacles, dist, forbidden_cells, allowed_cells
+                    )
                     obstacle_positions = moved_obstacles
                 else:
                     obstacle_positions = all_obstacles
@@ -400,7 +429,7 @@ def generate_variants(seed=None):
                 forbidden_cells.update(allowed_obstacles)
 
                 remaining = n_obstacles - min_in_allowed
-                rectangle_available = list(rectangle - forbidden_cells)   # If don't have enough allowed cells, use rectangle
+                rectangle_available = list(rectangle - forbidden_cells)
                 if len(rectangle_available) < remaining:
                     raise RuntimeError("Not enough rectangle cells to place remaining obstacles")
                 remaining_obstacles = random.sample(rectangle_available, remaining)
@@ -408,21 +437,19 @@ def generate_variants(seed=None):
 
                 all_obstacles = allowed_obstacles + remaining_obstacles
                 
-                total_dist = dist  # the total sum of distances to move all obstacles
+                total_dist = dist
                 num_obs = len(all_obstacles)
-
-                # Randomly split total_dist into num_obs parts (simple method: random proportions)
                 proportions = np.random.dirichlet(np.ones(num_obs), size=1)[0]
                 distances = [int(round(total_dist * p)) for p in proportions]
 
                 moved_obstacles = []
-                leftover = 0  # leftover distance to redistribute
+                leftover = 0
 
                 distances_copy = distances.copy()
 
                 for idx, (x, y) in enumerate(all_obstacles):
                     move_dist = distances_copy[idx] + leftover
-                    leftover = 0  # reset leftover before this obstacle's move
+                    leftover = 0
 
                     if move_dist == 0:
                         chosen = (x, y)
@@ -431,18 +458,16 @@ def generate_variants(seed=None):
                         candidates = [c for c in candidates if c in allowed_available and c not in forbidden_cells]
 
                         if not candidates:
-                            # Can't move full move_dist, try smaller distances down to 0
                             for d in range(move_dist - 1, -1, -1):
                                 candidates = cells_at_manhattan_distance(x, y, d)
                                 candidates = [c for c in candidates if c in allowed_available and c not in forbidden_cells]
                                 if candidates:
                                     chosen = random.choice(candidates)
-                                    leftover = move_dist - d  # leftover distance to redistribute
+                                    leftover = move_dist - d
                                     break
                             else:
-                                # No candidates even at distance 0 (stay put)
                                 chosen = (x, y)
-                                leftover = move_dist  # all distance leftover
+                                leftover = move_dist
                         else:
                             chosen = random.choice(candidates)
                             leftover = 0
@@ -452,9 +477,13 @@ def generate_variants(seed=None):
                 
                 obstacle_positions = moved_obstacles
 
+            # convert obstacle grid -> world
             obstacle_positions_world = [grid_index_to_position(x, y) for x, y in obstacle_positions]
 
-            xml_variant = insert_obstacles_and_sensors(base_xml, obstacle_positions_world)
+            # ---------- NEW: update agent/goal positions in XML ----------
+            xml_with_positions = update_agent_goal_positions(base_xml, agent_pos, goal_pos)
+            # ---------- Then insert obstacles + sensors ----------
+            xml_variant = insert_obstacles_and_sensors(xml_with_positions, obstacle_positions_world)
 
             os.makedirs(OUTPUT_DIR, exist_ok=True)
             variant_path = os.path.join(OUTPUT_DIR, f"{variant_name}.xml")
@@ -462,6 +491,196 @@ def generate_variants(seed=None):
                 f.write(xml_variant)
 
             print(f"Saved variant {variant_path}")
+
+# def generate_variants(seed=None):
+#     random.seed(seed)
+#     with open(BASE_TEMPLATE_PATH) as f:
+#         base_xml = f.read()
+
+#     agent_cell, goal_cell = get_agent_goal_grid_positions(base_xml)
+#     rectangle = set(rectangle_cells(agent_cell, goal_cell))
+#     print(f"Agent cell: {agent_cell}, Goal cell: {goal_cell}")
+#     print(f"rectangle: {rectangle}")
+#     agent_pos, agent_size, goal_pos, goal_size = get_agent_goal_info(base_xml)
+#     forbidden = get_occupied_cells(agent_pos, agent_size) | get_occupied_cells(goal_pos, goal_size)
+
+#     # obstacle_setups: n_obstacles: (list of manhattan distances, corridor_width)
+#     # # This is for training setups
+#     # obstacle_setups = {
+#     #     15: ([3, 6, 9], 0),
+#     #     20: ([3, 6, 9], 0),
+#     #     35: ([3, 6, 9], 0),
+#     #     30: ([3, 6, 9], 0),
+#     # }
+    
+#     # This is for evaluation setup
+#     obstacle_setups = {
+#         20: ([3, 6, 9], 3),
+#         25: ([3, 6, 9], 3),
+#         30: ([3, 6, 9], 4),
+#         35: ([3, 6, 9], 5),
+#     }
+    
+#     # obstacle_setups = {
+#     #     7: ([4, 5, 6], 0),
+#     # }
+    
+#     for n_obstacles, (displacements, corridor_width) in obstacle_setups.items():
+#         for dist in displacements:
+#             # variant_name = f"n{n_obstacles}_dist{dist}_w{corridor_width}"
+            
+#             # For evaluation layouts
+#             variant_name = f"n{n_obstacles}_dist{dist}_w{corridor_width}"
+#             print(f"Generating variant {variant_name}")
+
+#             forbidden_cells = set(forbidden)
+#             allowed_cells = rectangle
+            
+#             if corridor_width > 0:
+#                 corridor_cells = corridor_around_bresenham_line(agent_cell[0], agent_cell[1], goal_cell[0], goal_cell[1], corridor_width)
+#                 allowed_cells = corridor_cells.intersection(rectangle)
+#                 print(" ")
+#                 print(f"Allowed cells after corridor {corridor_width}:  {allowed_cells}")
+#                 print(f"For {n_obstacles} dist {dist} corridor width {corridor_width}, allowed cells: {len(allowed_cells)}")
+#                 print("    ")
+#             else:
+#                 allowed_cells = rectangle
+#                 # print(f"For {n_obstacles} dist {dist} corridor width {corridor_width}, allowed cells: {len(allowed_cells)}")
+
+#             if n_obstacles == 0:
+#                 obstacle_positions = []
+#             elif n_obstacles == 1:
+#                 line_cells = bresenham_line(agent_cell[0], agent_cell[1], goal_cell[0], goal_cell[1])
+#                 # print (f"Bresenham line cells: {line_cells}")
+#                 # Filter line cells to allowed_cells and not forbidden
+#                 line_cells = [c for c in line_cells if c in allowed_cells and c not in forbidden_cells]
+#                 if not line_cells:
+#                     raise RuntimeError("No allowed cells on Bresenham line free for obstacle")
+#                 chosen_cell = random.choice(line_cells)
+#                 if dist > 0:
+#                     moved_cells = move_obstacles_with_manhattan_distance([chosen_cell], dist, forbidden_cells, line_cells)
+#                     chosen_cell = moved_cells[0]
+#                 obstacle_positions = [chosen_cell]
+#                 forbidden_cells.add(chosen_cell)
+#                 # print (f"Chosen obstacle position: {chosen_cell}")
+#             elif n_obstacles == 2:
+#                 line_cells = bresenham_line(agent_cell[0], agent_cell[1], goal_cell[0], goal_cell[1])
+#                 # print (f"Bresenham line cells: {line_cells}")
+#                 # Filter line cells to allowed_cells and not forbidden
+#                 line_cells = [c for c in line_cells if c in allowed_cells and c not in forbidden_cells]
+                
+#                 if len(line_cells) < 2:
+#                     raise RuntimeError("Not enough allowed cells on Bresenham line for 2 obstacles")
+#                 chosen_cells = random.sample(line_cells, 2)
+#                 if not line_cells:
+#                     raise RuntimeError("No allowed cells on Bresenham line free for obstacle")
+#                 chosen_cell = random.choice(line_cells)
+#                 if dist > 0:
+#                     moved_cells = move_obstacles_with_manhattan_distance([chosen_cell], dist, forbidden_cells, line_cells)
+#                     chosen_cell = moved_cells[0]
+#                 obstacle_positions = chosen_cells
+#                 forbidden_cells.update(chosen_cells)
+#                 # print (f"Chosen obstacle position: {chosen_cell}")
+                
+#             elif n_obstacles == 3:
+#                 line_cells = bresenham_line(agent_cell[0], agent_cell[1], goal_cell[0], goal_cell[1])
+#                 # print(f"Bresenham line cells: {line_cells}")
+                
+#                 allowed_line_cells = [c for c in line_cells if c in allowed_cells and c not in forbidden_cells]
+#                 if not allowed_line_cells:
+#                     raise RuntimeError("No allowed cells on Bresenham line free for obstacle")
+
+#                 path_obstacle = random.choice(allowed_line_cells)
+#                 forbidden_cells.add(path_obstacle)
+                
+#                 remaining_allowed = list(allowed_cells - forbidden_cells)
+#                 if len(remaining_allowed) < 2:
+#                     raise RuntimeError("Not enough allowed cells to place remaining obstacles")
+                
+#                 remaining_obstacles = random.sample(remaining_allowed, 2)
+#                 forbidden_cells.update(remaining_obstacles)
+                
+#                 all_obstacles = [path_obstacle] + remaining_obstacles
+                
+#                 if dist > 0:
+#                     moved_obstacles = move_obstacles_with_manhattan_distance(all_obstacles, dist, forbidden_cells, allowed_cells)
+#                     obstacle_positions = moved_obstacles
+#                 else:
+#                     obstacle_positions = all_obstacles
+                
+#                 print(f"Chosen obstacle positions: {obstacle_positions}")
+
+#             else:
+#                 min_in_allowed = n_obstacles
+#                 allowed_available = list(allowed_cells - forbidden_cells)
+#                 if len(allowed_available) < min_in_allowed:
+#                     raise RuntimeError("Not enough allowed cells to place obstacles")
+#                 allowed_obstacles = random.sample(allowed_available, min_in_allowed)
+#                 forbidden_cells.update(allowed_obstacles)
+
+#                 remaining = n_obstacles - min_in_allowed
+#                 rectangle_available = list(rectangle - forbidden_cells)   # If don't have enough allowed cells, use rectangle
+#                 if len(rectangle_available) < remaining:
+#                     raise RuntimeError("Not enough rectangle cells to place remaining obstacles")
+#                 remaining_obstacles = random.sample(rectangle_available, remaining)
+#                 forbidden_cells.update(remaining_obstacles)
+
+#                 all_obstacles = allowed_obstacles + remaining_obstacles
+                
+#                 total_dist = dist  # the total sum of distances to move all obstacles
+#                 num_obs = len(all_obstacles)
+
+#                 # Randomly split total_dist into num_obs parts (simple method: random proportions)
+#                 proportions = np.random.dirichlet(np.ones(num_obs), size=1)[0]
+#                 distances = [int(round(total_dist * p)) for p in proportions]
+
+#                 moved_obstacles = []
+#                 leftover = 0  # leftover distance to redistribute
+
+#                 distances_copy = distances.copy()
+
+#                 for idx, (x, y) in enumerate(all_obstacles):
+#                     move_dist = distances_copy[idx] + leftover
+#                     leftover = 0  # reset leftover before this obstacle's move
+
+#                     if move_dist == 0:
+#                         chosen = (x, y)
+#                     else:
+#                         candidates = cells_at_manhattan_distance(x, y, move_dist)
+#                         candidates = [c for c in candidates if c in allowed_available and c not in forbidden_cells]
+
+#                         if not candidates:
+#                             # Can't move full move_dist, try smaller distances down to 0
+#                             for d in range(move_dist - 1, -1, -1):
+#                                 candidates = cells_at_manhattan_distance(x, y, d)
+#                                 candidates = [c for c in candidates if c in allowed_available and c not in forbidden_cells]
+#                                 if candidates:
+#                                     chosen = random.choice(candidates)
+#                                     leftover = move_dist - d  # leftover distance to redistribute
+#                                     break
+#                             else:
+#                                 # No candidates even at distance 0 (stay put)
+#                                 chosen = (x, y)
+#                                 leftover = move_dist  # all distance leftover
+#                         else:
+#                             chosen = random.choice(candidates)
+#                             leftover = 0
+
+#                     moved_obstacles.append(chosen)
+#                     forbidden_cells.add(chosen)
+                
+#                 obstacle_positions = moved_obstacles
+
+#             obstacle_positions_world = [grid_index_to_position(x, y) for x, y in obstacle_positions]
+
+#             xml_variant = insert_obstacles_and_sensors(base_xml, obstacle_positions_world)
+
+#             os.makedirs(OUTPUT_DIR, exist_ok=True)
+#             variant_path = os.path.join(OUTPUT_DIR, f"{variant_name}.xml")
+#             with open(variant_path, "w") as f:
+#                 f.write(xml_variant)
+
+#             print(f"Saved variant {variant_path}")
 
 
 if __name__ == "__main__":

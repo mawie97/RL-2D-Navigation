@@ -32,47 +32,23 @@
         </body>
         
 
-        <body name="goal" pos="0.0 0.0 0">
+        <body name="goal" pos="11.0 11.0 0">
             <geom name="goal_geom" type="plane" size="0.5 0.5 1" pos="0 0 0" rgba="1 0 0 1"/>
         </body>
         
 
-        <body name="agent" pos="11.0 11.0 0.5">
+        <body name="agent" pos="-15 -6.0 0.5">
             <joint name="j1" type="slide" axis ="1 0 0 "/>
             <joint name="j2" type="slide" axis ="0 1 0 "/>
             <geom name="agent_geom" type="box" size="0.5 0.5 0.5" rgba="1 1 0 1"/>
         </body>
 
 
-        <body name="obstacle1" pos="7.0 3.0 0.5">
-            <geom name="obstacle1_geom" type="box" size="0.3 0.3 0.3" rgba="0 1 0 1"/>
-        </body>
-    
-        <body name="obstacle2" pos="11.0 7.0 0.5">
-            <geom name="obstacle2_geom" type="box" size="0.3 0.3 0.3" rgba="0 1 0 1"/>
-        </body>
-    
-        <body name="obstacle3" pos="5.0 9.0 0.5">
-            <geom name="obstacle3_geom" type="box" size="0.3 0.3 0.3" rgba="0 1 0 1"/>
-        </body>
-    
-        <body name="obstacle4" pos="7.0 7.0 0.5">
-            <geom name="obstacle4_geom" type="box" size="0.3 0.3 0.3" rgba="0 1 0 1"/>
-        </body>
-    
-        <body name="obstacle5" pos="7.0 11.0 0.5">
-            <geom name="obstacle5_geom" type="box" size="0.3 0.3 0.3" rgba="0 1 0 1"/>
-        </body>
-    
 
     </worldbody>
 
     <sensor>
-        <distance name="dist1" geom1="agent_geom" geom2="obstacle1_geom" cutoff="1.5"/>
-        <distance name="dist2" geom1="agent_geom" geom2="obstacle2_geom" cutoff="1.5"/>
-        <distance name="dist3" geom1="agent_geom" geom2="obstacle3_geom" cutoff="1.5"/>
-        <distance name="dist4" geom1="agent_geom" geom2="obstacle4_geom" cutoff="1.5"/>
-        <distance name="dist5" geom1="agent_geom" geom2="obstacle5_geom" cutoff="1.5"/>
+
     </sensor>
 
     <actuator>

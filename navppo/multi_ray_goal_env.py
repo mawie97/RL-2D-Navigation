@@ -139,7 +139,11 @@ class MujocoGoalEnv(gym.Env):
         self.max_y = MAX_Y
         self.action_space = spaces.Box(low=np.array([-self.max_x, -self.max_y]), high=np.array([self.max_x, self.max_y]), dtype=np.float32)
         
-        obs_dim = 2 + 2 + 1 + self.n_rays
+        # Observation:
+        #   rel_goal_x, rel_goal_y (2)
+        #   distance_to_goal       (1)
+        #   ray distances          (self.n_rays)
+        obs_dim = 2 + 1 + self.n_rays
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
     
     def _reset_episode_state(self):
@@ -252,11 +256,12 @@ class MujocoGoalEnv(gym.Env):
         goal_pos = self.data.xpos[self.goal_id][:2]
         agent_pos = self.data.xpos[self.agent_id][:2]
         
+        rel_goal = goal_pos - agent_pos
         distance_to_goal = np.linalg.norm(goal_pos - agent_pos)
         raw_readings = self._update_rays()
         surface_distances = self.adjust_raw_rays(raw_readings, NOISE_STD)
         
-        obs = np.array([*agent_pos, *goal_pos, distance_to_goal, *surface_distances ], dtype=np.float32)
+        obs = np.array([rel_goal[0], rel_goal[1], distance_to_goal, *surface_distances ], dtype=np.float32)
 
         return obs
     

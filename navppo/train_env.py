@@ -5,6 +5,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.logger import configure
 from multi_ray_goal_env import EpisodeCounterCallback
+import time
 
 def train_ppo(
     env_class,
@@ -61,12 +62,26 @@ def train_ppo(
     
     # Step 4: Setup the callback
     episode_counter_callback = EpisodeCounterCallback(total_episodes = num_episodes)
+
+    start_time = time.time()
+
     model.learn(total_timesteps=total_timesteps, callback=episode_counter_callback, reset_num_timesteps=reset_num_timesteps,)
+    
+    end_time = time.time()
+    elapsed = end_time - start_time
+    hours = int(elapsed // 3600)
+    minutes = int((elapsed % 3600) // 60)
+    seconds = int(elapsed % 60)
+    print(f"[INFO] Training time: {hours:02d}:{minutes:02d}:{seconds:02d} (h:m:s)")
     
     env.close()
     
     # Step 5: Save the model
-    model.save(os.path.join(model_dir, "model_ppo.zip"))
-    env.save(os.path.join(env_dir, "vecnormalize.pkl"))
+    model_save_path = os.path.join(model_dir, "model_ppo.zip")
+    vecnorm_save_path = os.path.join(env_dir, "vecnormalize.pkl")
+    model.save(model_save_path)
+    env.save(vecnorm_save_path)
     
     print(f"[INFO] Training completed and model saved.")
+    print(f"[INFO] Model saved to:       {model_save_path}")
+    print(f"[INFO] VecNormalize saved to: {vecnorm_save_path}")
