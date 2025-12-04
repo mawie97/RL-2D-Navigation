@@ -5,7 +5,7 @@ import argparse
 import mujoco
 from mujoco import viewer
 
-from generator_solver import SymbolicScenarioGenerator, GridSpec, SpawnSpec
+from generator_solver import SymbolicScenarioGenerator
 from generator_proc import ProceduralScenarioGenerator, GridSpec as ProcGridSpec
 
 
@@ -59,7 +59,7 @@ def parse_args():
 
     p.add_argument("--H", type=int, default=10)
     p.add_argument("--W", type=int, default=10)
-    p.add_argument("--seed", type=int, default=7)
+    p.add_argument("--seed", type=int, default=0)
 
     p.add_argument(
         "--scenario",
@@ -70,9 +70,14 @@ def parse_args():
     p.add_argument("--min-deadend-depth", type=int, default=4)
     p.add_argument("--min-corridor-length", type=int, default=4)
 
-    p.add_argument("--exact-walls", type=int, default=40)
+    p.add_argument("--exact-walls", type=int, default=None)
     p.add_argument("--min-walls", type=int, default=None)
     p.add_argument("--max-walls", type=int, default=None)
+
+    p.add_argument("--target-r", type=int, default=None,
+               help="Row of fixed target (global coords)")
+    p.add_argument("--target-c", type=int, default=None,
+               help="Col of fixed target (global coords)")
 
     p.add_argument(
         "--no-viewer",
@@ -81,6 +86,34 @@ def parse_args():
     )
 
     return p.parse_args()
+
+
+def solver_filename(
+    *,
+    H, W,
+    exact_walls, min_walls, max_walls,
+    deadend_depth, corridor_length,
+    seed,
+    ext=".xml",
+):
+    parts = [f"{H}x{W}"]
+
+    if exact_walls is not None:
+        parts.append(f"FWx{exact_walls}")
+    else:
+        if min_walls is not None:
+            parts.append(f"FWmin{min_walls}")
+        if max_walls is not None:
+            parts.append(f"FWmax{max_walls}")
+
+    if deadend_depth is not None:
+        parts.append(f"DEp{deadend_depth}")
+    if corridor_length is not None:
+        parts.append(f"COl{corridor_length}")
+
+    parts.append(f"seed{seed}")
+
+    return "_".join(parts) + ext
 
 
 def main():
@@ -101,23 +134,22 @@ def main():
     min_walls = args.min_walls
     max_walls = args.max_walls
 
-    sym_grid = GridSpec(
-        H=H,
-        W=W,
-        deadend=use_deadend,
-        corridor=use_corridor,
+    grid, chosen_dead, chosen_depth, deadend_path, corridor_path = (
+        SymbolicScenarioGenerator.generate_grid(
+            H=H,
+            W=W,
+            deadend=use_deadend,
+            corridor=use_corridor,
+            min_deadend_depth=min_deadend_depth,
+            min_corridorLength=min_corridorLength,
+            z3_seed=rng.randint(0, 1_000_000),
+            exact_walls=exact_walls,
+            min_walls=min_walls,
+            max_walls=max_walls,
+            spawn=(1, 1),
+        )
     )
-    spawn = SpawnSpec(start=(1, 1))
-    sym = SymbolicScenarioGenerator(sym_grid, spawn)
 
-    grid, chosen_dead, chosen_depth, deadend_path, corridor_path = sym.generate_grid(
-        min_deadend_depth=min_deadend_depth,
-        min_corridorLength=min_corridorLength,
-        z3_seed=rng.randint(0, 1_000_000),
-        exact_walls=exact_walls,
-        min_walls=min_walls,
-        max_walls=max_walls,
-    )
 
     print("=== SOLVER-GENERATED GRID ===")
     print_grid(grid)
@@ -137,20 +169,22 @@ def main():
         scenario_type = "standard"
 
     base_root = "scenarios"
-    path = build_scenario_filepath(
-        base_root=base_root,
-        scenario_type=scenario_type,
-        H=H,
-        W=W,
-        seed=seed,
+    scenario_type = scenario_type  # already defined
+
+    filename = solver_filename(
+        H=H, W=W,
         exact_walls=exact_walls,
         min_walls=min_walls,
         max_walls=max_walls,
         deadend_depth=min_deadend_depth if use_deadend else None,
         corridor_length=min_corridorLength if use_corridor else None,
-        prefix="solver",
+        seed=seed,
     )
 
+    outdir = os.path.join(base_root, "solver", scenario_type)
+    os.makedirs(outdir, exist_ok=True)
+
+    path = os.path.join(outdir, filename)
     model_name = os.path.splitext(os.path.basename(path))[0]
 
     proc = ProceduralScenarioGenerator(ProcGridSpec(H=H, W=W))

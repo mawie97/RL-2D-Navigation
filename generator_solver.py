@@ -1,34 +1,21 @@
 from __future__ import annotations
 from typing import List, Tuple, Optional
-from dataclasses import dataclass
+import time
 from z3 import (
     Solver, Bool, Int, And, Or, Not, If, Implies, Sum, is_true
 )
-import time
 
 Coord = Tuple[int, int]
 
-
-@dataclass
-class GridSpec:
-    H: int = 10
-    W: int = 10
-    corridor: bool = False
-    deadend: bool = False
-
-
-@dataclass
-class SpawnSpec:
-    start: Coord = (1, 1)
-
-
 class SymbolicScenarioGenerator:
-    def __init__(self, grid: GridSpec, spawn: SpawnSpec):
-        self.grid = grid
-        self.spawn = spawn
 
+    @staticmethod
     def generate_grid(
-        self,
+        *,
+        H: int = 10,
+        W: int = 10,
+        corridor: bool = False,
+        deadend: bool = False,
         min_deadend_depth: int = 3,
         min_corridorLength: int = 3,
         corridor_endpoint_min_free_degree: int = 3,
@@ -36,6 +23,8 @@ class SymbolicScenarioGenerator:
         exact_walls: Optional[int] = None,
         min_walls: Optional[int] = None,
         max_walls: Optional[int] = None,
+        spawn: Coord = (1,1),
+
     ) -> Tuple[
         List[List[bool]],                # grid: True = wall, False = free
         Optional[Coord],                 # chosen deadend endpoint (if any)
@@ -53,9 +42,9 @@ class SymbolicScenarioGenerator:
             deadend_path   : ordered list of coords along the dead-end chain, may be empty.
             corridor_path  : ordered list of coords along the corridor chain, may be empty.
         """
-        H, W = self.grid.H, self.grid.W
+
         BIG = H * W + 10
-        sr, sc = self.spawn.start
+        sr, sc = spawn
         assert 0 <= sr < H and 0 <= sc < W, "start out of range"
 
         wall = [[Bool(f"w_{r}_{c}") for c in range(W)] for r in range(H)]
@@ -135,7 +124,7 @@ class SymbolicScenarioGenerator:
                 s.add(Implies(Not(wall[r][c]), Or(*witness_eqs)))
 
         # ----- dead-end simple path + leaf -----
-        if self.grid.deadend:
+        if deadend:
             dead_path = [[Bool(f"dp_{r}_{c}") for c in range(W)] for r in range(H)]
             dead_endpoint = [[Bool(f"de_{r}_{c}") for c in range(W)] for r in range(H)]
 
@@ -203,7 +192,7 @@ class SymbolicScenarioGenerator:
             s.add(Sum(dead_path_cells) == min_deadend_depth + 1)
 
         # ----- corridor simple path + roomy endpoints -----
-        if self.grid.corridor:
+        if corridor:
             n_corr = min_corridorLength
 
             path = [[Bool(f"p_{r}_{c}") for c in range(W)] for r in range(H)]
@@ -282,7 +271,7 @@ class SymbolicScenarioGenerator:
         chosen_dead: Optional[Coord] = None
         chosen_depth: int = -1
 
-        if self.grid.deadend:
+        if deadend:
             path_cells_list: List[Coord] = []
             for r in range(H):
                 for c in range(W):
@@ -355,7 +344,8 @@ class SymbolicScenarioGenerator:
 
         # ----- extract corridor path -----
         corridor_path: List[Coord] = []
-        if self.grid.corridor:
+        if corridor:
+
             corridor_cells: List[Coord] = []
             for r in range(H):
                 for c in range(W):

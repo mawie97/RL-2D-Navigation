@@ -50,12 +50,6 @@ class ProceduralScenarioGenerator:
 
         return dist, seen
 
-    def py_check_connected(self, grid: List[List[bool]], root: Coord) -> bool:
-        H, W = self.grid.H, self.grid.W
-        total_free = sum(1 for r in range(H) for c in range(W) if not grid[r][c])
-        dist, seen = self.bfs_dist(grid, root)
-        return dist is not None and len(seen) == total_free
-
     @staticmethod
     def deg_free(grid: List[List[bool]], r: int, c: int) -> int:
         if grid[r][c]:
@@ -167,14 +161,6 @@ class ProceduralScenarioGenerator:
         target_free_raw = total - target_walls
         target_free_raw = max(1, min(total, target_free_raw))
         target_free = max(base_free, target_free_raw)
-
-        print("DEBUG: total cells:", total)
-        print("DEBUG: target_walls:", target_walls)
-        print("DEBUG: base_free:", base_free)
-        print("DEBUG: target_free:", target_free)
-        print("DEBUG: len(free_set) initially:", len(free_set))
-        print("DEBUG: frozen size:", len(frozen))
-        print("DEBUG: initial frontier size:", len(frontier))
 
         # carve with frontier
         while len(free_set) < target_free and frontier:

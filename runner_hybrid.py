@@ -1,85 +1,164 @@
 import os
 import random
 import argparse
+import math
 from typing import List, Tuple, Optional
-from collections import deque
 
 import mujoco
 from mujoco import viewer
 from z3 import Int, Solver, And, Or, Distinct, sat
 
-from generator_solver import SymbolicScenarioGenerator, GridSpec as SymGridSpec, SpawnSpec
+from generator_solver import SymbolicScenarioGenerator
 from generator_proc import ProceduralScenarioGenerator, GridSpec as ProcGridSpec
+from generator_bresenham import BresenhamStandardGenerator
 
 Coord = Tuple[int, int]
 
+def at_constraints_satisfied(
+    d: Optional[float],
+    at_min: Optional[int],
+    at_max: Optional[int],
+    at_exact: Optional[int],
+) -> bool:
+    if d is None:
+        return False
+    if at_exact is not None:
+        return d == at_exact
+    if at_min is not None and d < at_min:
+        return False
+    if at_max is not None and d > at_max:
+        return False
+    return True
+
+# Helper to find possible offsets in deadend/corridor scenarios
+def candidate_offsets_for_at(
+    *,
+    block_H: int,
+    block_W: int,
+    full_H: int,
+    full_W: int,
+    fixed_target: Coord,
+    agent_rel_block: Coord,       # (ra, ca) in block coordinates
+    at_min: Optional[int] = None,
+    at_max: Optional[int] = None,
+    at_exact: Optional[int] = None,
+) -> list[Coord]:
+    """
+    Return candidate (off_r, off_c) offsets where the *straight-line* distance
+    between agent (on the structure) and fixed_target is compatible with the
+    requested AT constraints.
+
+    grid coords for agent: (off_r + ra, off_c + ca)
+    """
+
+    (tr, tc) = fixed_target
+    (ra, ca) = agent_rel_block
+
+    # interpret constraints
+    if at_exact is not None:
+        desired_min = at_exact
+        desired_max = at_exact
+    else:
+        desired_min = at_min if at_min is not None else 0
+        desired_max = at_max if at_max is not None else float("inf")
+
+    candidates: list[Coord] = []
+
+    # brute force all offsets where block fits inside full grid
+    for off_r in range(full_H - block_H + 1):
+        for off_c in range(full_W - block_W + 1):
+            ar = off_r + ra
+            ac = off_c + ca
+
+            # quick sanity: must be inside grid by construction, so skip checks
+
+            # use straight-line (euclidean) distance as heuristic
+            dr = tr - ar
+            dc = tc - ac
+            d_line = math.sqrt(dr * dr + dc * dc)
+
+            if desired_min <= d_line <= desired_max:
+                candidates.append((off_r, off_c))
+
+    return candidates
 
 # ------------------------------------------------------------
 # Filename builder (unchanged logic, now fed from CLI)
 # ------------------------------------------------------------
-def build_scenario_filepath(
-    base_root: str,
-    scenario_type: str,   # "standard", "deadend", "corridor"
+def scenario_filename(
+    *,
     H: int,
     W: int,
+    block_walls: int,
+    full_exact_walls: Optional[int],
+    full_min_walls: Optional[int],
+    full_max_walls: Optional[int],
+    deadend_depth: Optional[int],
+    corridor_length: Optional[int],
+    num_agents: int,
+    num_targets: int,
+    aa_min: Optional[int],
+    aa_max: Optional[int],
+    aa_exact: Optional[int],
+    tt_min: Optional[int],
+    tt_max: Optional[int],
+    tt_exact: Optional[int],
+    at_min: Optional[int],
+    at_max: Optional[int],
+    at_exact: Optional[int],
+    offset_r: int,
+    offset_c: int,
     seed: int,
-    # wall constraints (for the FULL grid)
-    exact_walls: Optional[int] = None,
-    min_walls: Optional[int] = None,
-    max_walls: Optional[int] = None,
-    # structural stuff
-    deadend_depth: Optional[int] = None,
-    corridor_length: Optional[int] = None,
-    # distance constraints
-    aa_min: Optional[int] = None,
-    aa_max: Optional[int] = None,
-    aa_exact: Optional[int] = None,
-    tt_min: Optional[int] = None,
-    tt_max: Optional[int] = None,
-    tt_exact: Optional[int] = None,
-    at_min: Optional[int] = None,
-    at_max: Optional[int] = None,
-    at_exact: Optional[int] = None,
-    prefix: str = "hybrid",
     ext: str = ".xml",
 ) -> str:
-    dir_path = os.path.join(base_root, scenario_type)
-    os.makedirs(dir_path, exist_ok=True)
 
-    parts = [f"{prefix}_{H}x{W}"]
+    parts = [f"{H}x{W}"]
 
-    # walls
-    if exact_walls is not None:
-        parts.append(f"wExact{exact_walls}")
+    # block walls (always present)
+    parts.append(f"BW{block_walls}")
+
+    # full grid walls
+    if full_exact_walls is not None:
+        parts.append(f"FWx{full_exact_walls}")
     else:
-        if min_walls is not None:
-            parts.append(f"wMin{min_walls}")
-        if max_walls is not None:
-            parts.append(f"wMax{max_walls}")
+        if full_min_walls is not None:
+            parts.append(f"FWmin{full_min_walls}")
+        if full_max_walls is not None:
+            parts.append(f"FWmax{full_max_walls}")
 
     # deadend / corridor
     if deadend_depth is not None:
-        parts.append(f"deadD{deadend_depth}")
+        parts.append(f"DEp{deadend_depth}")
     if corridor_length is not None:
-        parts.append(f"corrL{corridor_length}")
+        parts.append(f"COl{corridor_length}")
 
-    def add_dist(tag: str, dmin, dmax, deq):
-        if deq is not None:
-            parts.append(f"{tag}Eq{deq}")
+    # agents & targets
+    parts.append(f"AG{num_agents}")
+    parts.append(f"TG{num_targets}")
+
+    # distance constraints
+    def add_dist(tag, mn, mx, eq):
+        if eq is not None:
+            parts.append(f"{tag}eq{eq}")
         else:
-            if dmin is not None:
-                parts.append(f"{tag}Min{dmin}")
-            if dmax is not None:
-                parts.append(f"{tag}Max{dmax}")
+            if mn is not None:
+                parts.append(f"{tag}min{mn}")
+            if mx is not None:
+                parts.append(f"{tag}max{mx}")
 
-    add_dist("aa", aa_min, aa_max, aa_exact)
-    add_dist("tt", tt_min, tt_max, tt_exact)
-    add_dist("at", at_min, at_max, at_exact)
+    add_dist("AA", aa_min, aa_max, aa_exact)
+    add_dist("TT", tt_min, tt_max, tt_exact)
+    add_dist("AT", at_min, at_max, at_exact)
 
+    # offset
+    if offset_r != 0 or offset_c != 0:
+        parts.append(f"Off{offset_r}-{offset_c}")
+
+    # seed
     parts.append(f"seed{seed}")
 
-    filename = "_".join(parts) + ext
-    return os.path.join(dir_path, filename)
+    return "_".join(parts) + ext
+
 
 
 # ------------------------------------------------------------
@@ -100,155 +179,6 @@ def embed_block(
         for c in range(Ws):
             grid[br0 + r][bc0 + c] = block[r][c]
     return grid
-
-
-# ------------------------------------------------------------
-# Z3 placement of agents/targets on a fixed grid
-# (unchanged, just called from main with CLI params)
-# ------------------------------------------------------------
-def place_entities_with_solver(
-    grid: List[List[bool]],
-    num_agents: int,
-    num_targets: int,
-    min_agent_agent: Optional[int] = None,
-    max_agent_agent: Optional[int] = None,
-    exact_agent_agent: Optional[int] = None,
-    min_agent_target: Optional[int] = None,
-    max_agent_target: Optional[int] = None,
-    exact_agent_target: Optional[int] = None,
-    min_target_target: Optional[int] = None,
-    max_target_target: Optional[int] = None,
-    exact_target_target: Optional[int] = None,
-    pinned_target_cells: Optional[List[Coord]] = None,
-    pinned_agent_cells: Optional[List[Coord]] = None,
-    z3_seed: Optional[int] = None,
-) -> Tuple[List[Coord], List[Coord]]:
-    H, W = len(grid), len(grid[0])
-
-    free_cells: List[Coord] = [
-        (r, c) for r in range(H) for c in range(W) if not grid[r][c]
-    ]
-    n = len(free_cells)
-    pinned_agent_cells = pinned_agent_cells or []
-    pinned_target_cells = pinned_target_cells or []
-
-    if n < num_agents + num_targets:
-        raise RuntimeError("Not enough free cells for agents + targets")
-
-    def bfs_from_idx(idx: int) -> List[int]:
-        sr, sc = free_cells[idx]
-        dgrid = [[-1] * W for _ in range(H)]
-        if grid[sr][sc]:
-            return [-1] * n
-
-        q = deque()
-        q.append((sr, sc))
-        dgrid[sr][sc] = 0
-
-        while q:
-            r, c = q.popleft()
-            for nr, nc in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
-                if (
-                    0 <= nr < H
-                    and 0 <= nc < W
-                    and not grid[nr][nc]
-                    and dgrid[nr][nc] == -1
-                ):
-                    dgrid[nr][nc] = dgrid[r][c] + 1
-                    q.append((nr, nc))
-
-        dist = [-1] * n
-        for i, (r, c) in enumerate(free_cells):
-            dist[i] = dgrid[r][c]
-        return dist
-
-    dist_matrix: List[List[int]] = [bfs_from_idx(i) for i in range(n)]
-
-    agents = [Int(f"A{i}") for i in range(num_agents)]
-    targets = [Int(f"T{j}") for j in range(num_targets)]
-    all_vars = agents + targets
-
-    s = Solver()
-    if z3_seed is not None:
-        s.set("random_seed", z3_seed)
-
-    for v in all_vars:
-        s.add(And(v >= 0, v < n))
-
-    if len(all_vars) > 1:
-        s.add(Distinct(*all_vars))
-
-        # Pin agents to specific free cells, if requested
-    for i, cell in enumerate(pinned_agent_cells):
-        if i >= num_agents:
-            raise ValueError("More pinned_agent_cells than num_agents")
-        if cell not in free_cells:
-            raise ValueError(f"Pinned agent cell {cell} is not a free cell")
-        idx = free_cells.index(cell)
-        s.add(agents[i] == idx)
-
-    for j, cell in enumerate(pinned_target_cells):
-        if j >= num_targets:
-            raise ValueError("More pinned_target_cells than num_targets")
-        if cell not in free_cells:
-            raise ValueError(f"Pinned target cell {cell} is not a free cell")
-        idx = free_cells.index(cell)
-        s.add(targets[j] == idx)
-
-    def add_pair_dist_constraint(
-        v1,
-        v2,
-        min_d: Optional[int],
-        max_d: Optional[int],
-        exact_d: Optional[int],
-    ):
-        if min_d is None and max_d is None and exact_d is None:
-            return
-
-        for i in range(n):
-            for j in range(n):
-                d = dist_matrix[i][j]
-                if d == -1:
-                    s.add(Or(v1 != i, v2 != j))
-                    continue
-
-                if exact_d is not None:
-                    if d != exact_d:
-                        s.add(Or(v1 != i, v2 != j))
-                else:
-                    if min_d is not None and d < min_d:
-                        s.add(Or(v1 != i, v2 != j))
-                    if max_d is not None and d > max_d:
-                        s.add(Or(v1 != i, v2 != j))
-
-    for i in range(num_agents):
-        for j in range(i + 1, num_agents):
-            add_pair_dist_constraint(
-                agents[i], agents[j],
-                min_agent_agent, max_agent_agent, exact_agent_agent
-            )
-
-    for i in range(num_targets):
-        for j in range(i + 1, num_targets):
-            add_pair_dist_constraint(
-                targets[i], targets[j],
-                min_target_target, max_target_target, exact_target_target
-            )
-
-    for ai in range(num_agents):
-        for tj in range(num_targets):
-            add_pair_dist_constraint(
-                agents[ai], targets[tj],
-                min_agent_target, max_agent_target, exact_agent_target
-            )
-
-    if s.check() != sat:
-        raise RuntimeError("No entity placement satisfies distance constraints")
-
-    m = s.model()
-    agent_cells = [free_cells[m[a].as_long()] for a in agents]
-    target_cells = [free_cells[m[t].as_long()] for t in targets]
-    return agent_cells, target_cells
 
 
 # ------------------------------------------------------------
@@ -286,23 +216,45 @@ def parse_args():
         default="deadend",
         help="Which symbolic structure to enforce in the block",
     )
-
-    # Free-cell budgets
+    
+    # Deadend position
     p.add_argument(
-        "--block-free",
+        "--deadend-agent-pos",
+        choices=["start", "middle", "end"],
+        default="end",  # or whatever you like
+        help="Where to place the agent on a deadend path when pinning",
+    )
+
+    # Wall budgets
+    p.add_argument(
+        "--block-walls",
         type=int,
-        required=True,
-        help="Exact number of FREE cells inside the symbolic block",
+        default=None,
+        help="Exact number of WALL cells inside the symbolic block",
+    )
+
+    p.add_argument(
+        "--full-exact-walls",
+        type=int,
+        default=None,
+        help="Exact number of WALL cells in the FULL grid "
+             "(if set, overrides full-min-walls/full-max-walls)",
     )
     p.add_argument(
-        "--total-free",
+        "--full-min-walls",
         type=int,
-        required=True,
-        help="Exact number of FREE cells in the FULL grid",
+        default=None,
+        help="Minimum number of WALL cells in the FULL grid",
+    )
+    p.add_argument(
+        "--full-max-walls",
+        type=int,
+        default=None,
+        help="Maximum number of WALL cells in the FULL grid",
     )
 
     # Seeds
-    p.add_argument("--seed", type=int, default=7, help="Master random seed")
+    p.add_argument("--seed", type=int, default=0, help="Master random seed")
 
     # Structure parameters
     p.add_argument(
@@ -340,6 +292,26 @@ def parse_args():
     add_dist("tt")  # target-target
     add_dist("at")  # agent-target
 
+    p.add_argument("--target-r", type=int, default=None,
+               help="Row of fixed target (global coords)")
+    p.add_argument("--target-c", type=int, default=None,
+               help="Col of fixed target (global coords)")
+    
+    p.add_argument(
+        "--agent-r",
+        type=int,
+        default=None,
+        help="Row of agent start (only used in standard scenarios)",
+    )
+    p.add_argument(
+        "--agent-c",
+        type=int,
+        default=None,
+        help="Column of agent start (only used in standard scenarios)",
+    )
+
+
+
     # Viewer toggle
     p.add_argument(
         "--no-viewer",
@@ -348,7 +320,6 @@ def parse_args():
     )
 
     return p.parse_args()
-
 
 # ------------------------------------------------------------
 # main
@@ -365,117 +336,355 @@ def main():
     block_cells = block_H * block_W
     full_cells = full_H * full_W
 
-    if args.block_free < 1 or args.block_free > block_cells:
-        raise ValueError(f"block-free must be in [1, {block_cells}]")
-    if args.total_free < args.block_free or args.total_free > full_cells:
-        raise ValueError(
-            f"total-free must be in [{args.block_free}, {full_cells}]"
-        )
-
-    # Convert FREE counts to WALL counts
-    exact_block_walls = block_cells - args.block_free
-    exact_full_walls = full_cells - args.total_free
-
     # ---------- scenario flags ----------
     use_deadend = (args.scenario == "deadend")
     use_corridor = (args.scenario == "corridor")
+    scenario_type = args.scenario
+
+    # ----- block walls (symbolic) -----
+    # Only relevant when we actually use a symbolic block
+    if scenario_type == "standard":
+        # no symbolic block → just pick something for filename
+        exact_block_walls = 0
+    else:
+        if args.block_walls is None:
+            raise ValueError(
+                "For deadend/corridor scenarios you must provide --block-walls."
+            )
+        if args.block_walls < 0 or args.block_walls > block_cells:
+            raise ValueError(f"block-walls must be in [0, {block_cells}]")
+        exact_block_walls = args.block_walls
+
+    # ----- fixed target -----
+    if args.target_r is not None and args.target_c is not None:
+        fixed_target = (args.target_r, args.target_c)
+    else:
+        # default near bottom-right
+        fixed_target = (full_H - 2, full_W - 2)
+
+    # ----- full-grid walls (procedural) -----
+    full_exact_walls: Optional[int] = None
+    proc_min_walls: Optional[int] = None
+    proc_max_walls: Optional[int] = None
+
+    if args.full_exact_walls is not None:
+        if not (0 <= args.full_exact_walls <= full_cells):
+            raise ValueError(f"full-exact-walls must be in [0, {full_cells}]")
+        full_exact_walls = args.full_exact_walls
+        proc_min_walls = proc_max_walls = full_exact_walls
+    elif args.full_min_walls is not None or args.full_max_walls is not None:
+        if (args.full_min_walls is not None and
+                args.full_max_walls is not None and
+                args.full_min_walls > args.full_max_walls):
+            raise ValueError("full-min-walls cannot be greater than full-max-walls")
+        proc_min_walls = args.full_min_walls if args.full_min_walls is not None else 0
+        proc_max_walls = args.full_max_walls if args.full_max_walls is not None else full_cells
+    else:
+        raise ValueError(
+            "You must specify at least one of "
+            "--full-exact-walls, --full-min-walls or --full-max-walls."
+        )
 
     min_deadend_depth = args.deadend_depth
     min_corridorLength = args.corridor_length
 
-    # ---------- symbolic block config ----------
-    sym_grid = SymGridSpec(
-        H=block_H,
-        W=block_W,
-        deadend=use_deadend,
-        corridor=use_corridor,
-    )
-    spawn = SpawnSpec(start=(1, 1))
-    sym_gen = SymbolicScenarioGenerator(sym_grid, spawn)
+    # ---------- distance constraints for entities ----------
+    aa_min, aa_max, aa_exact = args.aa_min, args.aa_max, args.aa_exact
+    at_min, at_max, at_exact = args.at_min, args.at_max, args.at_exact
+    tt_min, tt_max, tt_exact = args.tt_min, args.tt_max, args.tt_exact
 
-    z3_seed = rng.randint(0, 1_000_000)
-    block_bool, chosen_dead, chosen_depth, deadend_path_block, corridor_path_block = (
-        sym_gen.generate_grid(
-            min_deadend_depth=min_deadend_depth,
-            min_corridorLength=min_corridorLength,
-            z3_seed=z3_seed,
-            # single source of truth: walls in block from CLI
-            exact_walls=exact_block_walls,
-            min_walls=None,
-            max_walls=None,
-        )
-    )
-
-    # ---------- embed symbolic block into full grid ----------
+    # common offset (used in deadend/corridor, and filename)
     off_r = args.offset_r
     off_c = args.offset_c
-    offset = (off_r, off_c)
 
-    # sanity check: block must fit inside full grid at this offset
-    if off_r < 0 or off_c < 0 or off_r + block_H > full_H or off_c + block_W > full_W:
-        raise ValueError(
-            f"Block offset ({off_r}, {off_c}) with size {block_H}x{block_W} "
-            f"does not fit inside full grid {full_H}x{full_W}"
+    # single procedural generator instance
+    proc_gen = ProceduralScenarioGenerator(ProcGridSpec(H=full_H, W=full_W))
+
+    # Set defaults so they exist in all branches
+    deadend_path_global: List[Coord] = []
+    corridor_path_global: List[Coord] = []
+    dead_global: Optional[Coord] = None
+    mid_corr_global: Optional[Coord] = None
+
+
+    # ============================
+    # 1) STANDARD (Bresenham) CASE
+    # ============================
+    if scenario_type == "standard":
+        # For now, assume 1 agent and 1 target. Enforce it.
+        if args.num_agents != 1 or args.num_targets != 1:
+            raise ValueError("Standard scenarios currently only support 1 agent and 1 target")
+
+        # ----- target position (fixed) -----
+        target = fixed_target
+
+        # Do we have AT constraints?
+        at_constraints = (
+            at_min is not None
+            or at_max is not None
+            or at_exact is not None
         )
 
-    base_grid = embed_block(full_H, full_W, block_bool, offset)
+        if at_constraints:
+            # Don't allow contradictory specification
+            if args.agent_r is not None or args.agent_c is not None:
+                raise ValueError(
+                    "In standard scenarios, do not specify --agent-r/--agent-c "
+                    "when using AT distance constraints. The agent position "
+                    "will be derived automatically from the distance band."
+                )
 
-    root_small = spawn.start
-    root_global = (offset[0] + root_small[0],
-                   offset[1] + root_small[1])
-    
-    deadend_path_global: List[Coord] = []
-    dead_global: Optional[Coord] = None
-    if use_deadend and chosen_dead is not None: # If the deadend flag = True and 
-        dead_global = (offset[0] + chosen_dead[0], offset[1] + chosen_dead[1])
-        deadend_path_global = [
-            (offset[0] + r, offset[1] + c)
-            for (r, c) in deadend_path_block
-        ]
+            # Find all candidate agent cells that satisfy the Euclidean AT band
+            candidates: list[Coord] = []
+            tr, tc = target
+            for r in range(full_H):
+                for c in range(full_W):
+                    if (r, c) == target:
+                        continue  # can't sit on the target
 
-    corridor_path_global: List[Coord] = []
-    mid_corr_global: Optional[Coord] = None
-    if use_corridor:
-        if not corridor_path_block:
-            raise RuntimeError(
-                "Corridor path is empty – solver corridor constraints too weak/disabled"
+                    d_line = math.hypot(tr - r, tc - c)
+                    if at_constraints_satisfied(d_line, at_min, at_max, at_exact):
+                        candidates.append((r, c))
+
+            if not candidates:
+                raise RuntimeError(
+                    "No agent position in the grid satisfies the requested "
+                    "agent-target distance band for the given AT constraints."
+                )
+
+            # Pick one uniformly at random
+            agent = rng.choice(candidates)
+
+        else:
+            # No AT constraints → use explicit agent position or default
+            if args.agent_r is not None and args.agent_c is not None:
+                agent = (args.agent_r, args.agent_c)
+            else:
+                # default if user doesn't specify
+                agent = (1, 1)
+
+            # basic sanity checks
+            ar, ac = agent
+            if not (0 <= ar < full_H and 0 <= ac < full_W):
+                raise ValueError(
+                    f"Agent position {agent} is out of bounds for grid {full_H}x{full_W}"
+                )
+            if agent == target:
+                raise ValueError(
+                    f"Agent position {agent} coincides with target position {target}"
+                )
+
+        # Map full-grid wall config for the Bresenham generator
+        if args.full_exact_walls is not None:
+            exact_walls = args.full_exact_walls
+            min_walls = None
+            max_walls = None
+        else:
+            exact_walls = None
+            min_walls = args.full_min_walls
+            max_walls = args.full_max_walls
+
+        gen = BresenhamStandardGenerator(full_H, full_W)
+        grid_full = gen.generate(
+            agent=agent,
+            target=target,
+            exact_walls=exact_walls,
+            min_walls=min_walls,
+            max_walls=max_walls,
+            line_wall_fraction=0.7,
+            rng=rng,
+        )
+
+        agent_cells = [agent]
+        target_cells = [target]
+
+    # ===================================
+    # 2) DEADEND / CORRIDOR (HYBRID) CASE
+    # ===================================
+    else:
+        # Do we have AT constraints?
+        at_constraints = (
+            at_min is not None
+            or at_max is not None
+            or at_exact is not None
+        )
+
+        # We only support AT constraints in this special case:
+        # - agent pinned on the symbolic structure
+        # - exactly 1 agent and 1 target
+        can_use_geom_AT = (
+            at_constraints
+            and args.pin_agent_on_structure
+            and args.num_agents == 1
+            and args.num_targets == 1
+        )
+
+        if at_constraints and not can_use_geom_AT:
+            raise ValueError(
+                "AT distance constraints for deadend/corridor are only "
+                "supported when pin-agent-on-structure is set and "
+                "num_agents = num_targets = 1."
             )
-        corridor_path_global = [
-            (offset[0] + r, offset[1] + c)
-            for (r, c) in corridor_path_block
-        ]
-        L_corr = len(corridor_path_block)
-        mid_idx_corr = L_corr // 2
-        mid_corr_block = corridor_path_block[mid_idx_corr]
-        mid_corr_global = (offset[0] + mid_corr_block[0],
-                           offset[1] + mid_corr_block[1])
 
-    frozen = set(
-        (offset[0] + r, offset[1] + c)
-        for r in range(block_H)
-        for c in range(block_W)
-    )
+        # ---- 2A: generate ONE symbolic block ----
+        block_bool, chosen_dead, chosen_depth, \
+            deadend_path_block, corridor_path_block = SymbolicScenarioGenerator.generate_grid(
+                H=block_H,
+                W=block_W,
+                deadend=use_deadend,
+                corridor=use_corridor,
+                min_deadend_depth=min_deadend_depth,
+                min_corridorLength=min_corridorLength,
+                z3_seed=rng.randint(0, 1_000_000),
+                exact_walls=exact_block_walls,
+                min_walls=None,
+                max_walls=None,
+                spawn=(1, 1),
+            )
 
-    # ---------- procedural fill config ----------
-    # We want EXACT total walls = exact_full_walls over the FULL grid.
-    proc_min_walls = exact_full_walls
-    proc_max_walls = exact_full_walls
+        # choose agent position in BLOCK coordinates
+        if use_deadend:
+            if not deadend_path_block:
+                raise RuntimeError("Deadend scenario, but solver returned empty deadend_path_block.")
+            pos_mode = args.deadend_agent_pos  # "start"/"middle"/"end"
+            if pos_mode == "start":
+                agent_rel_block = deadend_path_block[0]
+            elif pos_mode == "middle":
+                mid_idx = len(deadend_path_block) // 2
+                agent_rel_block = deadend_path_block[mid_idx]
+            else:
+                agent_rel_block = deadend_path_block[-1]
 
-    proc_gen = ProceduralScenarioGenerator(ProcGridSpec(H=full_H, W=full_W))
-    grid_full = proc_gen.generate_with_requirements(
-        root=root_global,
-        min_walls=proc_min_walls,
-        max_walls=proc_max_walls,
-        min_corridor=None,
-        min_deadends=None,
-        min_deadend_depth=min_deadend_depth + 1,  # same default as before
-        rng=rng,
-        max_tries=200,
-        base_grid=base_grid,
-        frozen=frozen,
-    )
+        elif use_corridor:
+            if not corridor_path_block:
+                raise RuntimeError("Corridor scenario, but solver returned empty corridor_path_block.")
+            Lc = len(corridor_path_block)
+            mid_idx = Lc // 2
+            agent_rel_block = corridor_path_block[mid_idx]
+        else:
+            # shouldn't happen in this branch
+            raise RuntimeError("Internal error: hybrid branch without deadend or corridor.")
 
-    print("Hybrid grid (# = wall, . = free):")
+        # ---- 2B: decide offsets ----
+        if can_use_geom_AT:
+            # Use Euclidean distance band to filter offsets
+            candidate_offsets = candidate_offsets_for_at(
+                block_H=block_H,
+                block_W=block_W,
+                full_H=full_H,
+                full_W=full_W,
+                fixed_target=fixed_target,
+                agent_rel_block=agent_rel_block,
+                at_min=at_min,
+                at_max=at_max,
+                at_exact=at_exact,
+            )
+
+            if not candidate_offsets:
+                raise RuntimeError(
+                    "No placement of this symbolic block can achieve the requested "
+                    "Euclidean agent-target distance band."
+                )
+
+            rng.shuffle(candidate_offsets)  # randomize search order a bit
+        else:
+            # No AT constraints → just use the user-provided offset
+            candidate_offsets = [(off_r, off_c)]
+
+        success = False
+        last_error = None
+
+        # ---- 2C: try offsets until proc generation works ----
+        for off_r_try, off_c_try in candidate_offsets:
+            offset = (off_r_try, off_c_try)
+
+            # sanity check: block must fit inside full grid
+            if off_r_try < 0 or off_c_try < 0 or \
+               off_r_try + block_H > full_H or off_c_try + block_W > full_W:
+                continue
+
+            base_grid = embed_block(full_H, full_W, block_bool, offset)
+
+            root_small = (1, 1)
+            root_global = (off_r_try + root_small[0],
+                           off_c_try + root_small[1])
+
+            # build global deadend / corridor metadata
+            deadend_path_global = []
+            dead_global = None
+            if use_deadend and deadend_path_block:
+                deadend_path_global = [
+                    (off_r_try + r, off_c_try + c)
+                    for (r, c) in deadend_path_block
+                ]
+                dead_global = deadend_path_global[-1]
+
+            corridor_path_global = []
+            mid_corr_global = None
+            if use_corridor and corridor_path_block:
+                corridor_path_global = [
+                    (off_r_try + r, off_c_try + c)
+                    for (r, c) in corridor_path_block
+                ]
+                mid_idx_corr = len(corridor_path_global) // 2
+                mid_corr_global = corridor_path_global[mid_idx_corr]
+
+            frozen = {
+                (off_r_try + r, off_c_try + c)
+                for r in range(block_H)
+                for c in range(block_W)
+            }
+
+            try:
+                grid_full = proc_gen.generate_with_requirements(
+                    root=root_global,
+                    min_walls=proc_min_walls,
+                    max_walls=proc_max_walls,
+                    min_corridor=None,
+                    min_deadends=None,
+                    min_deadend_depth=min_deadend_depth + 1,
+                    rng=rng,
+                    max_tries=200,
+                    base_grid=base_grid,
+                    frozen=frozen,
+                )
+            except Exception as e:
+                last_error = e
+                continue  # try next offset
+
+            # compute agent global pos
+            agent_pos = (
+                off_r_try + agent_rel_block[0],
+                off_c_try + agent_rel_block[1],
+            )
+
+            # make sure agent and target are on FREE cells
+            ar, ac = agent_pos
+            tr, tc = fixed_target
+            if grid_full[ar][ac] or grid_full[tr][tc]:
+                # one of them ended up inside a wall → reject this offset
+                continue
+
+            # if we’re here, we’re happy:
+            agent_cells = [agent_pos]
+            target_cells = [fixed_target]
+            # and also update off_r/off_c used later for filename
+            off_r = off_r_try
+            off_c = off_c_try
+            success = True
+            break
+
+        if not success:
+            raise RuntimeError(
+                "Could not embed block & generate full grid for any candidate offset. "
+                f"Last error: {last_error}"
+            )
+
+
+    # ============================
+    # PRINT GRID & STRUCTURE INFO
+    # ============================
+    print("Grid (# = wall, . = free):")
     for r in range(full_H):
         print("".join("#" if grid_full[r][c] else "." for c in range(full_W)))
 
@@ -490,82 +699,64 @@ def main():
             print("  ", step)
         print("Middle of corridor (global):", mid_corr_global)
 
-    # ---------- distance constraints for entities ----------
-    num_agents = args.num_agents
-    num_targets = args.num_targets
 
-    aa_min, aa_max, aa_exact = args.aa_min, args.aa_max, args.aa_exact
-    at_min, at_max, at_exact = args.at_min, args.at_max, args.at_exact
-    tt_min, tt_max, tt_exact = args.tt_min, args.tt_max, args.tt_exact
-
-    pinned_agents: List[Coord] = []
-
-    if args.pin_agent_on_structure:
-        # Only if the user *wants* the agent pinned on the structure
-        if use_deadend and dead_global is not None:
-            pinned_agents.append(dead_global)
-        if use_corridor and mid_corr_global is not None:
-            pinned_agents.append(mid_corr_global)
-    # else: leave pinned_agents empty → no forced placement
-
-    agent_cells, target_cells = place_entities_with_solver(
-        grid_full,
-        num_agents=args.num_agents,
-        num_targets=args.num_targets,
-        min_agent_agent=aa_min,
-        max_agent_agent=aa_max,
-        exact_agent_agent=aa_exact,
-        min_agent_target=at_min,
-        max_agent_target=at_max,
-        exact_agent_target=at_exact,
-        min_target_target=tt_min,
-        max_target_target=tt_max,
-        exact_target_target=tt_exact,
-        pinned_agent_cells=pinned_agents if pinned_agents else None,
-        pinned_target_cells=None,
-        z3_seed=rng.randint(0, 1_000_000),
-    )
-
+    # At this point, agent_cells / target_cells are set for ALL scenarios
     print("Agents at:", agent_cells)
     print("Targets at:", target_cells)
 
-    # ---------- decide scenario type ----------
-    scenario_type = args.scenario
+    # ---------- decide scenario type for directory ----------
+    if use_corridor:
+        scenario_dir = "corridor"
+    elif use_deadend:
+        scenario_dir = "deadend"
+    else:
+        scenario_dir = "standard"
 
-    base_root = "scenarios"
+    # For filename: if we used an exact wall budget, record that.
+    fname_exact = full_exact_walls
+    fname_min = proc_min_walls if fname_exact is None else None
+    fname_max = proc_max_walls if fname_exact is None else None
 
-    path = build_scenario_filepath(
-        base_root=base_root,
-        scenario_type=scenario_type,
+    filename = scenario_filename(
         H=full_H,
         W=full_W,
-        seed=master_seed,
-        exact_walls=exact_full_walls,
-        min_walls=None,
-        max_walls=None,
+        block_walls=exact_block_walls,
+        full_exact_walls=full_exact_walls,
+        full_min_walls=fname_min,
+        full_max_walls=fname_max,
         deadend_depth=min_deadend_depth if use_deadend else None,
         corridor_length=min_corridorLength if use_corridor else None,
+        num_agents=args.num_agents,
+        num_targets=args.num_targets,
         aa_min=aa_min, aa_max=aa_max, aa_exact=aa_exact,
         tt_min=tt_min, tt_max=tt_max, tt_exact=tt_exact,
         at_min=at_min, at_max=at_max, at_exact=at_exact,
-        prefix="hybrid",
+        offset_r=off_r,
+        offset_c=off_c,
+        seed=master_seed,
     )
 
+    outdir = os.path.join("scenarios", "hybrid", scenario_dir)
+    os.makedirs(outdir, exist_ok=True)
+
+    path = os.path.join(outdir, filename)
     model_name = os.path.splitext(os.path.basename(path))[0]
+
     xml = proc_gen.grid_to_mujoco_xml_base_compatible(
         grid_full,
         model_name=model_name,
         agent_cells=agent_cells,
         target_cells=target_cells,
     )
-
     proc_gen.write_xml(xml, path)
+
     print(f"Saved {path}")
 
     if not args.no_viewer:
         model = mujoco.MjModel.from_xml_path(path)
         data = mujoco.MjData(model)
         viewer.launch(model, data)
+
 
 
 if __name__ == "__main__":
