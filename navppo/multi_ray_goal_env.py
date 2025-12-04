@@ -4,13 +4,13 @@ import random
 import gymnasium as gym
 import mujoco
 import mujoco_viewer
+import mujoco.viewer as mj_viewer
 import numpy as np
 from gymnasium import spaces
 from stable_baselines3.common.callbacks import BaseCallback
 import csv
 from datetime import datetime
 from collections import deque
-
 
 from multi_ray_goal_config import (
     N_RAYS,
@@ -569,7 +569,7 @@ class MujocoGoalEnv(gym.Env):
         # Launch viewer once
         if not hasattr(self, "viewer") or self.viewer is None:
             try:
-                self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
+                self.viewer = mj_viewer.launch_passive(self.model, self.data)
             except RuntimeError:
                 pass
 

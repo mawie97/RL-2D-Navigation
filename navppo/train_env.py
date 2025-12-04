@@ -27,6 +27,16 @@ def train_ppo(
     os.makedirs(env_dir, exist_ok=True)
 
     # Step 1: Create and wrap environment
+    print(f"[INFO] Starting training from scratch")
+    env = DummyVecEnv([lambda: Monitor(env_class(csv_log_path, xml_paths), filename=os.path.join(log_dir, "monitor.csv"))])
+
+    env.seed(seed_value)
+    env.action_space.seed(seed_value)
+    env.observation_space.seed(seed_value)
+    env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_reward=10.0)
+
+    # Step 2: Create and train model
+    model = PPO("MlpPolicy", env, verbose=1, ent_coef=0.01, seed = seed_value, tensorboard_log=log_dir, device="cpu",)
     
     env = DummyVecEnv([lambda: Monitor(env_class(csv_log_path, xml_paths, headless = False), filename=os.path.join(log_dir, "monitor.csv"))])
     
