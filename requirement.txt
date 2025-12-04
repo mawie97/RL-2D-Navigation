@@ -2,5 +2,6 @@ ray[rllib]
 torch
 gymnasium
 mujoco
-mujoco‑viewer
+mujoco-python-viewer
 numpy
+imageio

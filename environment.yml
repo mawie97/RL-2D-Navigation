@@ -1,10 +1,19 @@
 name: sar
 channels:
+  - conda-forge
   - defaults
 dependencies:
   - python=3.10
-  - mujoco
+  - pip
+
+  # Core libs via conda
+  - numpy
   - pytorch
   - gymnasium
+  - mujoco
   - imageio
-prefix: /home/matsbw/miniconda/envs/sar
+
+  # Stuff that’s easier / standard via pip
+  - pip:
+      - ray[rllib]
+      - mujoco-python-viewer
