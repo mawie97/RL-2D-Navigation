@@ -81,10 +81,14 @@ class BresenhamStandardGenerator:
         # don't ever wall agent/target
         forbidden = {agent, target}
 
+        # collect true line cells (excluding agent/target)
+        line_candidates: list[Coord] = []
+
         for (r, c) in line_cells:
             # skip agent/target explicitly; they must stay free
             if (r, c) not in forbidden:
                 band_cells.add((r, c))
+                line_candidates.append((r, c))
 
             if neighbor_radius > 0:
                 for dr in range(-neighbor_radius, neighbor_radius + 1):
@@ -102,12 +106,21 @@ class BresenhamStandardGenerator:
         # --- 5) Place walls, prioritizing the band ---
         walls_left = num_walls
 
-        # 5a) walls in band
-        band_to_use = min(walls_left, len(band_cells))
-        for i in range(band_to_use):
-            (r, c) = band_cells[i]
-            grid[r][c] = True
-        walls_left -= band_to_use
+        # 5a-0) FORCE at least one wall directly on the line if possible
+        if walls_left > 0 and line_candidates:
+            lr, lc = rng.choice(line_candidates)
+            grid[lr][lc] = True
+            walls_left -= 1
+            # avoid double-counting this in the band placement
+            band_cells = [(r, c) for (r, c) in band_cells if (r, c) != (lr, lc)]
+
+        # 5a) remaining walls in band
+        if walls_left > 0 and band_cells:
+            band_to_use = min(walls_left, len(band_cells))
+            for i in range(band_to_use):
+                (r, c) = band_cells[i]
+                grid[r][c] = True
+            walls_left -= band_to_use
 
         if walls_left > 0:
             # 5b) remaining walls anywhere else (excluding agent/target and existing walls)
