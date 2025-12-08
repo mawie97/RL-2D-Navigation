@@ -44,19 +44,26 @@
         </body>
 
 
-        <body name="ob_5_14" pos="14.0000 4.0000 0.250">  <geom type="box" size="0.8000 0.8000 0.250"         rgba="1 0 0 1" contype="1" conaffinity="1"/></body>
-        <body name="ob_7_13" pos="12.0000 0.0000 0.250">  <geom type="box" size="0.8000 0.8000 0.250"         rgba="1 0 0 1" contype="1" conaffinity="1"/></body>
-        <body name="ob_9_12" pos="10.0000 -4.0000 0.250">  <geom type="box" size="0.8000 0.8000 0.250"         rgba="1 0 0 1" contype="1" conaffinity="1"/></body>
-        <body name="ob_11_12" pos="10.0000 -8.0000 0.250">  <geom type="box" size="0.8000 0.8000 0.250"         rgba="1 0 0 1" contype="1" conaffinity="1"/></body>
-        <body name="ob_11_13" pos="12.0000 -8.0000 0.250">  <geom type="box" size="0.8000 0.8000 0.250"         rgba="1 0 0 1" contype="1" conaffinity="1"/></body>
-        <body name="ob_12_12" pos="10.0000 -10.0000 0.250">  <geom type="box" size="0.8000 0.8000 0.250"         rgba="1 0 0 1" contype="1" conaffinity="1"/></body>
+        <body name="obstacle1" pos="14.0000 4.0000 0.250">  <geom name="obstacle1_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle2" pos="12.0000 0.0000 0.250">  <geom name="obstacle2_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle3" pos="10.0000 -4.0000 0.250">  <geom name="obstacle3_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle4" pos="10.0000 -8.0000 0.250">  <geom name="obstacle4_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle5" pos="12.0000 -8.0000 0.250">  <geom name="obstacle5_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle6" pos="10.0000 -10.0000 0.250">  <geom name="obstacle6_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
 
 
     </worldbody>
 
     <sensor>
 <!-- SENSORS -->
-    </sensor>
+    
+        <distance name="dist1" geom1="agent_geom" geom2="obstacle1_geom" cutoff="1.5"/>
+        <distance name="dist2" geom1="agent_geom" geom2="obstacle2_geom" cutoff="1.5"/>
+        <distance name="dist3" geom1="agent_geom" geom2="obstacle3_geom" cutoff="1.5"/>
+        <distance name="dist4" geom1="agent_geom" geom2="obstacle4_geom" cutoff="1.5"/>
+        <distance name="dist5" geom1="agent_geom" geom2="obstacle5_geom" cutoff="1.5"/>
+        <distance name="dist6" geom1="agent_geom" geom2="obstacle6_geom" cutoff="1.5"/>
+</sensor>
 
     <actuator>
         <plugin joint="j1" plugin="mujoco.pid" instance="pid1" />

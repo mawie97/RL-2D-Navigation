@@ -145,11 +145,12 @@ def build_xml_from_base(
 ) -> str:
     """
     Load base_layout.xml and inject:
-    - obstacle bodies (based on grid & same geometry settings as grid_to_mujoco_xml_base_compatible)
+    - obstacle bodies named obstacle1, obstacle2, ... with geoms obstacleN_geom
     - agent body position + size
     - goal body position
+    - distance sensors from agent_geom to each obstacleN_geom
 
-    Everything else (assets, plugins, contacts, sensors, actuators) stays as in base_layout.
+    Everything else (assets, plugins, contacts, etc.) stays as in base_layout.
     """
     if not os.path.exists(BASE_XML_PATH):
         raise FileNotFoundError(f"BASE_XML_PATH not found: {BASE_XML_PATH}")
@@ -157,7 +158,7 @@ def build_xml_from_base(
     with open(BASE_XML_PATH, "r", encoding="utf-8") as f:
         xml = f.read()
 
-    # Update model name if you care (optional; here we do it)
+    # Update model name
     xml = xml.replace('model="simple_navigation"', f'model="{model_name}"', 1)
 
     H = len(grid)
@@ -177,17 +178,29 @@ def build_xml_from_base(
 
     # --- Obstacles (True = wall) ---
     obstacles_xml: List[str] = []
+    obstacle_geom_names: List[str] = []
+
+    obstacle_idx = 0
     for r in range(H):
         for c in range(W):
             if not grid[r][c]:
                 continue
+            obstacle_idx += 1
+            body_name = f"obstacle{obstacle_idx}"
+            geom_name = f"{body_name}_geom"
+            obstacle_geom_names.append(geom_name)
+
             x, y = cell_to_xy(r, c)
+            # structure similar to example n3_dist1_w0.xml:
+            # body "obstacleN" with geom "obstacleN_geom"
             obstacles_xml.append(
-                f'<body name="ob_{r}_{c}" pos="{x:.4f} {y:.4f} {height:.3f}">'
-                f'  <geom type="box" size="{half_w:.4f} {half_h:.4f} {height:.3f}" '
-                f'        rgba="1 0 0 1" contype="1" conaffinity="1"/>'
+                f'<body name="{body_name}" pos="{x:.4f} {y:.4f} {height:.3f}">'
+                f'  <geom name="{geom_name}" type="box" '
+                f'size="{half_w:.4f} {half_h:.4f} {height:.3f}" '
+                f'rgba="0 1 0 1"/>'
                 f'</body>'
             )
+
     obstacles_text = ""
     if obstacles_xml:
         obstacles_text = "\n        " + "\n        ".join(obstacles_xml) + "\n"
@@ -239,6 +252,32 @@ def build_xml_from_base(
         raise RuntimeError('Agent </body> not found in base_layout.xml')
     end += len('</body>')
     xml = xml[:start] + agent_body_new + xml[end:]
+
+    # --- Sensors: distance from agent_geom to each obstacleN_geom ---
+    if obstacle_geom_names:
+        sensor_lines = []
+        for i, geom_name in enumerate(obstacle_geom_names, start=1):
+            sensor_lines.append(
+                f'        <distance name="dist{i}" '
+                f'geom1="agent_geom" geom2="{geom_name}" cutoff="1.5"/>'
+            )
+        sensors_text = "\n" + "\n".join(sensor_lines) + "\n"
+
+        if "<sensor" in xml:
+            # inject inside existing <sensor> ... </sensor>
+            s_start = xml.find("<sensor")
+            s_end = xml.find("</sensor>", s_start)
+            if s_end == -1:
+                raise RuntimeError("Malformed <sensor> block in base_layout.xml")
+            insert_pos = s_end
+            xml = xml[:insert_pos] + sensors_text + xml[insert_pos:]
+        else:
+            # no sensor block: create one before closing </mujoco>
+            insert_pos = xml.rfind("</mujoco>")
+            if insert_pos == -1:
+                raise RuntimeError("No </mujoco> closing tag found in XML")
+            sensor_block = "    <sensor>\n" + sensors_text + "    </sensor>\n"
+            xml = xml[:insert_pos] + sensor_block + xml[insert_pos:]
 
     return xml
 
