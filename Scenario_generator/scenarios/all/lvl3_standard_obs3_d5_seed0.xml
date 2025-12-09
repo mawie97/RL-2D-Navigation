@@ -44,9 +44,9 @@
         </body>
 
 
-        <body name="obstacle1" pos="8.0000 -12.0000 0.250">  <geom name="obstacle1_geom" type="box" size="1.0000 1.0000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle2" pos="10.0000 -12.0000 0.250">  <geom name="obstacle2_geom" type="box" size="1.0000 1.0000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle3" pos="10.0000 -14.0000 0.250">  <geom name="obstacle3_geom" type="box" size="1.0000 1.0000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle1" pos="8.0356 -12.1782 0.250">  <geom name="obstacle1_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle2" pos="10.0872 -11.8373 0.250">  <geom name="obstacle2_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle3" pos="10.1169 -13.9870 0.250">  <geom name="obstacle3_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
 
 
     </worldbody>

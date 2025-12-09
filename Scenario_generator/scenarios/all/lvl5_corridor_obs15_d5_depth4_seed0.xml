@@ -44,14 +44,14 @@
         </body>
 
 
-        <body name="obstacle1" pos="6.0000 -4.0000 0.250">  <geom name="obstacle1_geom" type="box" size="1.0000 1.0000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle2" pos="8.0000 -4.0000 0.250">  <geom name="obstacle2_geom" type="box" size="1.0000 1.0000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle3" pos="10.0000 -4.0000 0.250">  <geom name="obstacle3_geom" type="box" size="1.0000 1.0000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle4" pos="6.0000 -6.0000 0.250">  <geom name="obstacle4_geom" type="box" size="1.0000 1.0000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle5" pos="14.0000 -6.0000 0.250">  <geom name="obstacle5_geom" type="box" size="1.0000 1.0000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle6" pos="6.0000 -8.0000 0.250">  <geom name="obstacle6_geom" type="box" size="1.0000 1.0000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle7" pos="10.0000 -8.0000 0.250">  <geom name="obstacle7_geom" type="box" size="1.0000 1.0000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle8" pos="8.0000 -12.0000 0.250">  <geom name="obstacle8_geom" type="box" size="1.0000 1.0000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle1" pos="6.0822 -3.9328 0.250">  <geom name="obstacle1_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle2" pos="8.0291 -3.8119 0.250">  <geom name="obstacle2_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle3" pos="10.0533 -4.1553 0.250">  <geom name="obstacle3_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle4" pos="6.0569 -6.0726 0.250">  <geom name="obstacle4_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle5" pos="14.1863 -5.8897 0.250">  <geom name="obstacle5_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle6" pos="5.9988 -8.1056 0.250">  <geom name="obstacle6_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle7" pos="10.0835 -8.1202 0.250">  <geom name="obstacle7_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle8" pos="8.0162 -12.1326 0.250">  <geom name="obstacle8_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
 
 
     </worldbody>

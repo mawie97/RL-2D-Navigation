@@ -182,16 +182,26 @@ def build_xml_from_base(
     W = len(grid[0])
     A = ARENA_HALF_EXTENT
     height = OBSTACLE_HEIGHT
+    rng = random.Random()
 
     cell_w = (2.0 * A) / W
     cell_h = (2.0 * A) / H
-    half_w = cell_w * 0.5
-    half_h = cell_h * 0.5
+    half_w = cell_w * 0.4
+    half_h = cell_h * 0.4
+    max_jitter_x = 0.5 * cell_w - half_w
+    max_jitter_y = 0.5 * cell_h - half_h
 
     def cell_to_xy(r: int, c: int):
         x = -A + (c + 0.5) * cell_w
         y = A - (r + 0.5) * cell_h
         return x, y
+    
+    def addJitter(pos: tuple[float, float]):
+        x, y = pos
+        x_jitter = rng.uniform(-max_jitter_x, max_jitter_x)
+        y_jitter = rng.uniform(-max_jitter_y, max_jitter_y)
+        return x + x_jitter, y + y_jitter
+        
 
     # --- Obstacles (True = wall) ---
     obstacles_xml: List[str] = []
@@ -207,7 +217,7 @@ def build_xml_from_base(
             geom_name = f"{body_name}_geom"
             obstacle_geom_names.append(geom_name)
 
-            x, y = cell_to_xy(r, c)
+            x, y = addJitter(cell_to_xy(r, c))
             # structure similar to example n3_dist1_w0.xml:
             # body "obstacleN" with geom "obstacleN_geom"
             obstacles_xml.append(
