@@ -1,0 +1,24 @@
+/home/rusu/Thesis_Project/venv/lib/python3.12/site-packages/gymnasium/spaces/box.py:235: UserWarning: [33mWARN: Box low's precision lowered by casting to float32, current low.dtype=float64[0m
+  gym.logger.warn(
+/home/rusu/Thesis_Project/venv/lib/python3.12/site-packages/gymnasium/spaces/box.py:305: UserWarning: [33mWARN: Box high's precision lowered by casting to float32, current high.dtype=float64[0m
+  gym.logger.warn(
+/home/rusu/Thesis_Project/venv/lib/python3.12/site-packages/gymnasium/spaces/box.py:235: UserWarning: [33mWARN: Box low's precision lowered by casting to float32, current low.dtype=float64[0m
+  gym.logger.warn(
+/home/rusu/Thesis_Project/venv/lib/python3.12/site-packages/gymnasium/spaces/box.py:305: UserWarning: [33mWARN: Box high's precision lowered by casting to float32, current high.dtype=float64[0m
+  gym.logger.warn(
+Traceback (most recent call last):
+  File "/home/rusu/Thesis_Project/navppo/run_train_env.py", line 25, in <module>
+    train_ppo(
+  File "/home/rusu/Thesis_Project/navppo/train_env.py", line 70, in train_ppo
+    new_logger = configure(log_dir, ["csv", "tensorboard"])
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rusu/Thesis_Project/venv/lib/python3.12/site-packages/stable_baselines3/common/logger.py", line 661, in configure
+    output_formats = [make_output_format(f, folder, log_suffix) for f in format_strings]
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rusu/Thesis_Project/venv/lib/python3.12/site-packages/stable_baselines3/common/logger.py", line 467, in make_output_format
+    return TensorBoardOutputFormat(log_dir)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rusu/Thesis_Project/venv/lib/python3.12/site-packages/stable_baselines3/common/logger.py", line 399, in __init__
+    assert SummaryWriter is not None, "tensorboard is not installed, you can use `pip install tensorboard` to do so"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: tensorboard is not installed, you can use `pip install tensorboard` to do so
