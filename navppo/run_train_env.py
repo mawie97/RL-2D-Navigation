@@ -9,8 +9,8 @@ import os
 env_class = MujocoGoalEnv
 
 current_dir = os.path.dirname(__file__)  # scripts/train
-xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'train', '61_80'))
-base_dir = os.path.abspath(os.path.join(current_dir, 'runs', 'dead_setup_4_noise_0.00'))
+xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'train', 'all'))
+base_dir = os.path.abspath(os.path.join(current_dir, 'runs', 'all_noise_0'))
 xml_paths = sorted([os.path.join(xml_base_dir, f) for f in os.listdir(xml_base_dir) if f.endswith(".xml")])
 
 log_dir = os.path.join(base_dir, "logs")
@@ -19,6 +19,7 @@ model_dir = os.path.join(base_dir, "models")
 env_dir = os.path.join(base_dir, "envs")
 seed_value = 1234
 num_episodes = 500
+headless = True
 
 print("[INFO] Loaded XMLs:", xml_paths)
 
@@ -32,6 +33,8 @@ train_ppo(
     env_dir,
     seed_value,
     num_episodes,
+    headless,
     total_timesteps=int(1e6)
+
 
 )

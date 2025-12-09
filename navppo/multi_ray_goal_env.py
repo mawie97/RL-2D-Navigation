@@ -49,7 +49,7 @@ class EpisodeCounterCallback(BaseCallback):
         return True
 
 class MujocoGoalEnv(gym.Env):
-    def __init__(self, csv_log_path, xml_paths, headless = False):
+    def __init__(self, csv_log_path, xml_paths, headless):
         super(MujocoGoalEnv, self).__init__()
         
         self.xml_paths = xml_paths

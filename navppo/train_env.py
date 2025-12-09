@@ -17,7 +17,9 @@ def train_ppo(
     env_dir,
     seed_value,
     num_episodes,
+    headless,
     total_timesteps=int(1e6)
+
 
 ):
 
@@ -28,7 +30,7 @@ def train_ppo(
 
     # Step 1: Create and wrap environment
     print(f"[INFO] Starting training from scratch")
-    env = DummyVecEnv([lambda: Monitor(env_class(csv_log_path, xml_paths), filename=os.path.join(log_dir, "monitor.csv"))])
+    env = DummyVecEnv([lambda: Monitor(env_class(csv_log_path, xml_paths, headless), filename=os.path.join(log_dir, "monitor.csv"))])
 
     env.seed(seed_value)
     env.action_space.seed(seed_value)
@@ -38,7 +40,7 @@ def train_ppo(
     # Step 2: Create and train model
     model = PPO("MlpPolicy", env, verbose=1, ent_coef=0.01, seed = seed_value, tensorboard_log=log_dir, device="cpu",)
     
-    env = DummyVecEnv([lambda: Monitor(env_class(csv_log_path, xml_paths, headless = False), filename=os.path.join(log_dir, "monitor.csv"))])
+    env = DummyVecEnv([lambda: Monitor(env_class(csv_log_path, xml_paths, headless), filename=os.path.join(log_dir, "monitor.csv"))])
     
     model_path = os.path.join(model_dir, "model_ppo.zip")
     vecnorm_path = os.path.join(env_dir, "vecnormalize.pkl")

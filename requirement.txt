@@ -5,3 +5,4 @@ mujoco
 mujoco-python-viewer
 numpy
 imageio
+stable-baselines3
