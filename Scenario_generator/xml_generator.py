@@ -53,6 +53,23 @@ class ScenarioMeta:
 # Distance helpers
 # ============================
 
+def distance_band_for_label(label: int) -> Tuple[int, int]:
+    """
+    Map the 'distance' label (5, 10, 15) to a Manhattan distance band.
+    We treat them as short/mid/long categories:
+
+    5  -> short  -> 3-5
+    10 -> mid    -> 6-10
+    15 -> long   -> 11-15
+    """
+    if label == 5:
+        return 3, 5
+    if label == 10:
+        return 6, 10
+    if label == 15:
+        return 11, 15
+    raise ValueError(f"Unsupported distance label: {label}")
+
 def at_constraints_satisfied(
     d: Optional[float],
     at_min: Optional[int],
@@ -168,8 +185,8 @@ def build_xml_from_base(
 
     cell_w = (2.0 * A) / W
     cell_h = (2.0 * A) / H
-    half_w = cell_w * 0.40
-    half_h = cell_h * 0.40
+    half_w = cell_w * 0.5
+    half_h = cell_h * 0.5
 
     def cell_to_xy(r: int, c: int):
         x = -A + (c + 0.5) * cell_w
@@ -308,20 +325,23 @@ def generate_standard_scenario(
     rng = random.Random(seed)
     target = TARGET_DEFAULT
 
-    # choose agent position with Euclidean distance == distance
+    # Use Manhattan band instead of exact Euclidean
+    band_min, band_max = distance_band_for_label(distance)
+
     candidates: List[Coord] = []
     tr, tc = target
     for r in range(FULL_H):
         for c in range(FULL_W):
             if (r, c) == target:
                 continue
+            # Manhattan distance on the grid
             d_line = abs(tr - r) + abs(tc - c)
-            if at_constraints_satisfied(d_line, None, None, distance):
+            if at_constraints_satisfied(d_line, band_min, band_max, None):
                 candidates.append((r, c))
 
     if not candidates:
         raise RuntimeError(
-            f"No agent position with Euclidean distance {distance} "
+            f"No agent position with Manhattan distance in [{band_min},{band_max}] "
             f"for grid {FULL_H}x{FULL_W}"
         )
 
@@ -334,7 +354,6 @@ def generate_standard_scenario(
         exact_walls=obstacles,
         min_walls=None,
         max_walls=None,
-        line_wall_fraction=0.7,
         rng=rng,
     )
 
@@ -354,9 +373,8 @@ def generate_standard_scenario(
         path=out_path,
     )
 
-
 # ============================
-# Level 5: DEADEND / CORRIDOR (hybrid)
+# Level 5: DEADEND / CORRIDOR 
 # ============================
 
 def generate_structured_scenario(
@@ -364,7 +382,7 @@ def generate_structured_scenario(
     depth: int,
     distance: int,
     seed: int,
-    obstacles: int = 15,
+    obstacles: int = 10,
 ) -> ScenarioMeta:
     assert scenario in ("deadend", "corridor")
 
@@ -372,9 +390,8 @@ def generate_structured_scenario(
     use_deadend = (scenario == "deadend")
     use_corridor = (scenario == "corridor")
 
-    # 1) symbolic block: let it use some, but not all, of the walls
-    # leave at least 5 walls for the outer grid, and ensure at least 1 in the block
-    max_block_walls = max(1, obstacles - 5)
+    # 1) symbolic block: let it use between 1 and `obstacles` walls
+    max_block_walls = max(1, obstacles)
     min_block_walls = 1
 
     block_bool, chosen_dead, chosen_depth, \
@@ -387,27 +404,28 @@ def generate_structured_scenario(
             min_corridorLength=depth,
             corridor_endpoint_min_free_degree=3,
             z3_seed=rng.randint(0, 1_000_000),
-            exact_walls=None,           # <-- IMPORTANT: do NOT fix exact walls
-            min_walls=min_block_walls,  # allow variable count, just bounded
+            exact_walls=None,           # variable wall count in [min_block_walls, max_block_walls]
+            min_walls=min_block_walls,
             max_walls=max_block_walls,
             spawn=(1, 1),
         )
-
 
     # agent position within block (guaranteed FREE on the path)
     if use_deadend:
         if not deadend_path_block:
             raise RuntimeError("Deadend scenario but deadend_path_block is empty.")
-        agent_rel_block = deadend_path_block[-1]  # endpoint
+        agent_rel_block = deadend_path_block[-1]  # endpoint of deadend
     else:
         if not corridor_path_block:
             raise RuntimeError("Corridor scenario but corridor_path_block is empty.")
         mid_idx = len(corridor_path_block) // 2
-        agent_rel_block = corridor_path_block[mid_idx]  # midpoint
+        agent_rel_block = corridor_path_block[mid_idx]  # midpoint of corridor
 
     fixed_target = TARGET_DEFAULT
 
-    # 2) offsets based on Manhattan distance
+    # 2) offsets based on Manhattan distance band (short/mid/long)
+    band_min, band_max = distance_band_for_label(distance)
+
     candidate_offsets = candidate_offsets_for_at(
         block_H=BLOCK_H,
         block_W=BLOCK_W,
@@ -415,81 +433,47 @@ def generate_structured_scenario(
         full_W=FULL_W,
         fixed_target=fixed_target,
         agent_rel_block=agent_rel_block,
-        at_exact=distance,   # Manhattan exact distance now
+        at_min=band_min,
+        at_max=band_max,
+        at_exact=None,
     )
 
     if not candidate_offsets:
         raise RuntimeError(
             f"No offsets for {scenario} with depth={depth}, "
-            f"Manhattan distance={distance} in {FULL_H}x{FULL_W}"
+            f"Manhattan distance in [{band_min},{band_max}] in {FULL_H}x{FULL_W}"
         )
 
     rng.shuffle(candidate_offsets)
 
-    proc_gen = ProceduralScenarioGenerator(GridSpec(H=FULL_H, W=FULL_W))
-
-    # Full-grid wall budget = obstacles
-    full_exact_walls = obstacles
-    proc_min_walls = full_exact_walls
-    proc_max_walls = full_exact_walls
-
     success = False
-    last_error: Optional[Exception] = None
     grid_full: Optional[List[List[bool]]] = None
     agent_global: Optional[Coord] = None
 
+    tr, tc = fixed_target
+
     for off_r, off_c in candidate_offsets:
+        # Start with a fully free 15x15 grid
+        grid_candidate = [[False for _ in range(FULL_W)] for _ in range(FULL_H)]
 
-        # embed symbolic block
-        base_grid = embed_block(FULL_H, FULL_W, block_bool, (off_r, off_c))
+        # Embed the symbolic 5x5 block: all structural walls live here
+        for r in range(BLOCK_H):
+            for c in range(BLOCK_W):
+                if block_bool[r][c]:
+                    grid_candidate[off_r + r][off_c + c] = True
 
-        # *** choose BFS root = agent cell in block coords (guaranteed free) ***
-        root_small = agent_rel_block          # e.g. (r_a, c_a) inside block
-        root_global = (off_r + root_small[0], off_c + root_small[1])
+        # Force target cell FREE
+        grid_candidate[tr][tc] = False
 
-        tr, tc = fixed_target
-        
-        # freeze the entire block (walls + free cells)
-        frozen = {
-            (off_r + r, off_c + c)
-            for r in range(BLOCK_H)
-            for c in range(BLOCK_W)
-        }
-
-        # Also freeze the target cell and force it to be FREE
-        base_grid[tr][tc] = False
-        frozen.add((tr, tc))
-
-        try:
-            grid_candidate = proc_gen.generate_with_requirements(
-                root=root_global,
-                min_walls=proc_min_walls,
-                max_walls=proc_max_walls,
-                min_corridor=None,
-                min_deadends=None,
-                min_deadend_depth=depth + 1,
-                rng=rng,
-                max_tries=500,
-                base_grid=base_grid,
-                frozen=frozen,
-            )
-
-        except Exception as e:
-            last_error = e
-            continue  # try next offset
-
+        # Agent global coords
         ag = (off_r + agent_rel_block[0], off_c + agent_rel_block[1])
 
-        # sanity: agent/target must be free
+        # Agent must be free
         if grid_candidate[ag[0]][ag[1]]:
-            # shouldn't happen: agent cell is on a symbolic path
-            last_error = RuntimeError("Agent ended up in a wall after proc generation.")
-            continue
-        if grid_candidate[fixed_target[0]][fixed_target[1]]:
-            # target in wall → reject this offset
-            last_error = RuntimeError("Target ended up in a wall after proc generation.")
+            # This offset makes agent land on a wall -> try another
             continue
 
+        # If we got here, we have a valid embedding
         grid_full = grid_candidate
         agent_global = ag
         success = True
@@ -498,16 +482,16 @@ def generate_structured_scenario(
     if not success or grid_full is None or agent_global is None:
         raise RuntimeError(
             f"Could not embed {scenario} block for depth={depth}, "
-            f"distance={distance}, seed={seed}. Last error: {last_error}"
+            f"distance={distance}, seed={seed}."
         )
 
-    # sanity: global wall count == obstacles
+    # sanity: global wall count must not exceed requested obstacles
     wall_count = sum(
         1 for r in range(FULL_H) for c in range(FULL_W) if grid_full[r][c]
     )
-    if wall_count != obstacles:
+    if wall_count > obstacles:
         raise RuntimeError(
-            f"Wall count mismatch for {scenario}: expected {obstacles}, got {wall_count}"
+            f"Wall count mismatch for {scenario}: expected <= {obstacles}, got {wall_count}"
         )
 
     ensure_dir(OUT_ROOT)
@@ -529,40 +513,6 @@ def generate_structured_scenario(
     )
 
 
-# ============================
-# Level 6: shuffle copies of L1–5
-# ============================
-
-def generate_level6(all_prev: List[ScenarioMeta]) -> List[ScenarioMeta]:
-    rng = random.Random(999)
-    shuffled = all_prev.copy()
-    rng.shuffle(shuffled)
-
-    ensure_dir(OUT_ROOT)
-    lvl6_meta: List[ScenarioMeta] = []
-
-    for idx, sc in enumerate(shuffled, start=1):
-        filename = (
-            f"lvl6_{idx}_{sc.scenario}_obs{sc.obstacles}_"
-            f"d{sc.distance}_seed{sc.seed}.xml"
-        )
-        out_path = os.path.join(OUT_ROOT, filename)
-        shutil.copyfile(sc.path, out_path)
-
-        lvl6_meta.append(
-            ScenarioMeta(
-                level=6,
-                scenario=sc.scenario,
-                obstacles=sc.obstacles,
-                distance=sc.distance,
-                seed=sc.seed,
-                depth=sc.depth,
-                path=out_path,
-            )
-        )
-
-    return lvl6_meta
-
 
 # ============================
 # Master driver
@@ -571,59 +521,64 @@ def generate_level6(all_prev: List[ScenarioMeta]) -> List[ScenarioMeta]:
 def main() -> None:
     all_meta: List[ScenarioMeta] = []
 
-    # Level 1: dist (5,10,15), obstacles=0, seed=(0,1,2) → 9
+    # We'll use only short + mid distances (labels 5 and 10)
+    all_dist_labels = (5, 10, 15)
+    short_mid_dist_labels = (5,10)
+
+    # Level 1: obstacles=0, ~10 scenarios
+    # 2 distances * 5 seeds = 10
     print("Generating Level 1 (standard, obs=0)...")
-    for dist in (5, 10, 15):
+    for dist in all_dist_labels:
         for seed in (0, 1, 2):
             all_meta.append(generate_standard_scenario(1, 0, dist, seed))
 
-    # Level 2: dist (5,10,15), obstacles=1, seed=(0,1,2) → 9
+    # Level 2: obstacles=1, ~10 scenarios
+    # 2 distances * 5 seeds = 10
     print("Generating Level 2 (standard, obs=1)...")
-    for dist in (5, 10, 15):
+    for dist in all_dist_labels:
         for seed in (0, 1, 2):
             all_meta.append(generate_standard_scenario(2, 1, dist, seed))
 
-    # Level 3: dist (5,10,15), obstacles=(2,3,5), seed=(0,1,2) → 27
+    # Level 3: obstacles=(2,3,5), 1 seed
+    # 3 obs * 3 distances * 1 seed = 9
     print("Generating Level 3 (standard, obs=2,3,5)...")
     for obs in (2, 3, 5):
-        for dist in (5, 10, 15):
-            for seed in (0, 1, 2):
-                all_meta.append(generate_standard_scenario(3, obs, dist, seed))
+        for dist in all_dist_labels:
+            seed = 0
+            all_meta.append(generate_standard_scenario(3, obs, dist, seed))
 
-    # Level 4: dist (10,15), obstacles=(6,8,10), seed=(0,1,2) → 18
+    # Level 4: obstacles=(6,8,10), 2 seeds
+    # 3 obs * 2 distances * 2 seeds = 12
     print("Generating Level 4 (standard, obs=6,8,10)...")
     for obs in (6, 8, 10):
-        for dist in (10, 15):
-            for seed in (0, 1, 2):
+        for dist in short_mid_dist_labels:
+            for seed in (0, 1):
                 all_meta.append(generate_standard_scenario(4, obs, dist, seed))
 
-    # Level 5: deadend/corridor,
-    # depth=(1,2,3), dist=(5,10,15), obstacles=15, seed=(0,1,2) → 54
+    # Level 5: deadend/corridor, depth=(1,2,3),
+    # distances=(short,mid)=5,10, 1 seed
+    # 2 scenarios * 3 depths * 2 distances * 1 seed = 12
     print("Generating Level 5 (deadend & corridor, obs=15)...")
     for scenario in ("deadend", "corridor"):
-        for depth in (1, 2, 3):
-            for dist in (5, 10, 15):
-                for seed in (0, 1, 2):
-                    all_meta.append(
-                        generate_structured_scenario(
-                            scenario=scenario,
-                            depth=depth,
-                            distance=dist,
-                            seed=seed,
-                            obstacles=15,
-                        )
+        for depth in (2, 3, 4):
+            for dist in short_mid_dist_labels:
+                seed = 0
+                all_meta.append(
+                    generate_structured_scenario(
+                        scenario=scenario,
+                        depth=depth,
+                        distance=dist,
+                        seed=seed,
+                        obstacles=15,
                     )
+                )
 
-    expected = 9 + 9 + 27 + 18 + 54
+    expected = 51  # 9 + 9 + 9 + 12 + 12
     if len(all_meta) != expected:
         raise RuntimeError(f"Expected {expected} scenarios in L1–5, got {len(all_meta)}")
 
-    print("Generating Level 6 (shuffled mix of all previous)...")
-    lvl6_meta = generate_level6(all_meta)
-
     print(
-        f"Done. Levels 1–5: {len(all_meta)} scenarios, "
-        f"Level 6: {len(lvl6_meta)} scenarios. "
+        f"Done. Levels 1-5: {len(all_meta)} scenarios, "
         f"All XMLs in: {OUT_ROOT}"
     )
 
