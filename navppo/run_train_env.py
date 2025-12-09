@@ -9,7 +9,7 @@ import os
 env_class = MujocoGoalEnv
 
 current_dir = os.path.dirname(__file__)  # scripts/train
-xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'train', 'setup_4'))
+xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'train', '61_80'))
 base_dir = os.path.abspath(os.path.join(current_dir, 'runs', 'dead_setup_4_noise_0.00'))
 xml_paths = sorted([os.path.join(xml_base_dir, f) for f in os.listdir(xml_base_dir) if f.endswith(".xml")])
 
@@ -18,7 +18,7 @@ csv_log_path = os.path.join(base_dir, "self_log.csv")
 model_dir = os.path.join(base_dir, "models")
 env_dir = os.path.join(base_dir, "envs")
 seed_value = 1234
-num_episodes = 1500
+num_episodes = 500
 
 print("[INFO] Loaded XMLs:", xml_paths)
 
