@@ -1,0 +1,38 @@
+# Don’t send these to the Docker build context
+
+# Python junk
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual envs
+.env
+.venv
+env/
+venv/
+
+# Datasets, models, logs
+runs/
+logs/
+models/
+checkpoints/
+*.pt
+*.pth
+*.zip
+
+# Git and IDE noise
+.git
+.gitignore
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# OS/filesystem
+.DS_Store
+
+# You can ignore entire training output folders
+navppo/runs/
+navppo/logs/
+sarppo
+
