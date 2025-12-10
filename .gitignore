@@ -19,7 +19,7 @@
 *.war
 *.nar
 *.ear
-*.zip
+# *.zip
 *.tar.gz
 *.rar
 
@@ -261,5 +261,5 @@ gradle-app.setting
 # End of https://www.toptal.com/developers/gitignore/api/gradle,java,python,macos
 .vscode/*
 
-*.tfevents.*
-*.csv
+# *.tfevents.*
+# *.csv
