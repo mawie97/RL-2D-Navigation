@@ -40,11 +40,8 @@ class EpisodeCounterCallback(BaseCallback):
         if done:
             self.episode_count += 1
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            # print(f"Episode {self.episode_count} finished at {current_time}")
-            # print(" ")
             
             if self.episode_count >= self.total_episodes:
-                    # print(f"Training stopped after {self.total_episodes} episodes.")
                     return False
         return True
 
@@ -139,10 +136,6 @@ class MujocoGoalEnv(gym.Env):
         self.max_y = MAX_Y
         self.action_space = spaces.Box(low=np.array([-self.max_x, -self.max_y]), high=np.array([self.max_x, self.max_y]), dtype=np.float32)
         
-        # Observation:
-        #   rel_goal_x, rel_goal_y (2)
-        #   distance_to_goal       (1)
-        #   ray distances          (self.n_rays)
         obs_dim = 2 + 1 + self.n_rays
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
     
@@ -231,11 +224,12 @@ class MujocoGoalEnv(gym.Env):
     def reset(self, seed=None, options=None):
         if seed is not None:
             self.seed(seed)
-        self.episode_count += 1
-        if self.num_xmls > 1 and self.episode_count > 1 and self.episode_count % self.switch_every == 0:
+        
+        if self.num_xmls > 1 and self.episode_count != 0 and self.episode_count % self.switch_every == 0:
             self._switch_model()
-            # print(f"Switch model")
+            print(f"Switch model")
         # print(f"current episode: {self.episode_count}, current_xml file: {self.xml_paths[self.current_xml_index]}")
+        self.episode_count += 1
         mujoco.mj_resetData(self.model, self.data)
         mujoco.mj_step(self.model, self.data)
         print(f"current episode: {self.episode_count}")
@@ -285,7 +279,7 @@ class MujocoGoalEnv(gym.Env):
         # End episode if collision detected
         if collided:
             # print("Collision detected!")
-            reward -= 100
+            reward -= 300
             status = "Collision"
             if hasattr(self, "episode_log_writer"):
                 self.episode_log_writer.writerow([self.episode_count, status])

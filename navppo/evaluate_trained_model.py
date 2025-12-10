@@ -7,27 +7,28 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from multi_ray_goal_env import MujocoGoalEnv
 
 current_dir = os.path.dirname(__file__)
-xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'test'))
+xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'eval'))
 xml_paths = sorted([os.path.join(xml_base_dir, f) for f in os.listdir(xml_base_dir) if f.endswith(".xml")])
 
-current_setup = "dead_setup_2_noise_0.00"
+current_setup = "all_noise_0"
 
 base_dir = os.path.join(current_dir, "runs", current_setup)
 
-csv_log_path = os.path.join(base_dir, "eval", "noise_03", "log", "eval_log.csv")
+csv_log_path = os.path.join(base_dir, "eval", "all_noise_0", "log", "eval_log.csv")
 os.makedirs(os.path.dirname(csv_log_path), exist_ok=True)
 
 tensorboard_eval_log_dir = os.path.join(
-    base_dir, "eval", "noise_03", "tensorboard"
+    base_dir, "eval", "noise_0", "tensorboard"
 )
 os.makedirs(tensorboard_eval_log_dir, exist_ok=True)
             
 model_path = os.path.join(base_dir, "models", "model_ppo")
 vecnorm_path = os.path.join(base_dir, "envs", "vecnormalize.pkl")
 
+headless = False
 
 def make_env():
-    return Monitor(MujocoGoalEnv(csv_log_path, xml_paths, headless= False))
+    return Monitor(MujocoGoalEnv(csv_log_path, xml_paths, headless))
 
 eval_env = DummyVecEnv([make_env])
 eval_env = VecNormalize.load(vecnorm_path, eval_env)
@@ -40,7 +41,7 @@ model = PPO.load(model_path)
 writer = SummaryWriter(log_dir=tensorboard_eval_log_dir)
 
 num_episodes = 0
-max_episodes = 60
+max_episodes = 50
 episode_rewards = []
 
 obs = eval_env.reset()
@@ -56,7 +57,7 @@ while num_episodes < max_episodes:
         if ep_info is not None:
             episode_rewards.append(ep_info["r"])
             writer.add_scalar("Eval/episode_reward", ep_info["r"], num_episodes)
-            print(f"Episode {num_episodes + 1} reward: {ep_info['r']}")
+            print(f"Episode {num_episodes} reward: {ep_info['r']}")
             
 
 avg_reward = sum(episode_rewards) / len(episode_rewards)
