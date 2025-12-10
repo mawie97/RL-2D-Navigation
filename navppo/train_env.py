@@ -38,7 +38,7 @@ def train_ppo(
     env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_reward=10.0)
 
     # Step 2: Create and train model
-    model = PPO("MlpPolicy", env, verbose=1, ent_coef=0.01, seed = seed_value, tensorboard_log=log_dir,)
+    model = PPO("MlpPolicy", env, verbose=1, ent_coef=0.01, seed = seed_value, tensorboard_log=log_dir) # add this when running with viewer: ,device="cpu",
     
     env = DummyVecEnv([lambda: Monitor(env_class(csv_log_path, xml_paths, headless), filename=os.path.join(log_dir, "monitor.csv"))])
     
@@ -54,7 +54,7 @@ def train_ppo(
         env.norm_reward = True
 
         # Load model and attach env
-        model = PPO.load(model_path, env=env)
+        model = PPO.load(model_path, env=env) # add this when running with viewer: ,device="cpu",
         model.set_env(env)
 
         reset_num_timesteps = False
@@ -66,7 +66,7 @@ def train_ppo(
         env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_reward=10.0)
 
         # Step 2: Create and train model
-        model = PPO("MlpPolicy", env, verbose=1, ent_coef=0.01, seed = seed_value, tensorboard_log=log_dir)
+        model = PPO("MlpPolicy", env, verbose=1, ent_coef=0.01, seed = seed_value, tensorboard_log=log_dir) # add this when running with viewer: ,device="cpu",
         reset_num_timesteps = True
     # Step 3: Log for the tensorboard
     new_logger = configure(log_dir, ["csv", "tensorboard"])
