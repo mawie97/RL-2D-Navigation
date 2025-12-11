@@ -1,0 +1,10 @@
+/home/rusu/Thesis_Project/venv/lib/python3.12/site-packages/gymnasium/spaces/box.py:235: UserWarning: [33mWARN: Box low's precision lowered by casting to float32, current low.dtype=float64[0m
+  gym.logger.warn(
+/home/rusu/Thesis_Project/venv/lib/python3.12/site-packages/gymnasium/spaces/box.py:305: UserWarning: [33mWARN: Box high's precision lowered by casting to float32, current high.dtype=float64[0m
+  gym.logger.warn(
+/home/rusu/Thesis_Project/venv/lib/python3.12/site-packages/gymnasium/spaces/box.py:235: UserWarning: [33mWARN: Box low's precision lowered by casting to float32, current low.dtype=float64[0m
+  gym.logger.warn(
+/home/rusu/Thesis_Project/venv/lib/python3.12/site-packages/gymnasium/spaces/box.py:305: UserWarning: [33mWARN: Box high's precision lowered by casting to float32, current high.dtype=float64[0m
+  gym.logger.warn(
+slurmstepd: error: *** JOB 41853 ON desktop12 CANCELLED AT 2025-12-10T18:35:21 DUE TO TIME LIMIT ***
+slurmstepd: error: *** JOB 41853 ON desktop12 CANCELLED AT 2025-12-10T18:35:21 ***
