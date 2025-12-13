@@ -19,8 +19,8 @@ FULL_H = 15
 FULL_W = 15
 
 # Block size for deadend/corridor
-BLOCK_H = 5
-BLOCK_W = 5
+BLOCK_H = 6
+BLOCK_W = 6
 
 # Single output folder
 OUT_ROOT = os.path.join("scenarios", "all")
@@ -63,11 +63,11 @@ def distance_band_for_label(label: int) -> Tuple[int, int]:
     15 -> long   -> 11-15
     """
     if label == 5:
-        return 3, 5
+        return 4, 6
     if label == 10:
-        return 6, 10
+        return 9, 11
     if label == 15:
-        return 11, 15
+        return 14, 16
     raise ValueError(f"Unsupported distance label: {label}")
 
 def at_constraints_satisfied(
@@ -335,7 +335,7 @@ def generate_standard_scenario(
     rng = random.Random(seed)
     target = TARGET_DEFAULT
 
-    # Use Manhattan band instead of exact Euclidean
+    # Use Manhattan band 
     band_min, band_max = distance_band_for_label(distance)
 
     candidates: List[Coord] = []
@@ -392,7 +392,7 @@ def generate_structured_scenario(
     depth: int,
     distance: int,
     seed: int,
-    obstacles: int = 10,
+    obstacles: int,
 ) -> ScenarioMeta:
     assert scenario in ("deadend", "corridor")
 
@@ -506,7 +506,7 @@ def generate_structured_scenario(
 
     ensure_dir(OUT_ROOT)
     filename = (
-        f"lvl5_{scenario}_obs{obstacles}_d{distance}_depth{depth}_seed{seed}.xml"
+        f"lvl5_{scenario}_obs{obstacles}_d{distance}_depth{depth-1}_seed{seed}.xml"
     )
     out_path = os.path.join(OUT_ROOT, filename)
 
@@ -534,6 +534,7 @@ def main() -> None:
     # We'll use only short + mid distances (labels 5 and 10)
     all_dist_labels = (5, 10, 15)
     short_mid_dist_labels = (5,10)
+    mid_long_dist_labels = (10,15)
 
     # Level 1: obstacles=0, ~10 scenarios
     # 2 distances * 5 seeds = 10
@@ -561,17 +562,17 @@ def main() -> None:
     # 3 obs * 2 distances * 2 seeds = 12
     print("Generating Level 4 (standard, obs=6,8,10)...")
     for obs in (6, 8, 10):
-        for dist in short_mid_dist_labels:
+        for dist in mid_long_dist_labels:
             for seed in (0, 1):
                 all_meta.append(generate_standard_scenario(4, obs, dist, seed))
 
     # Level 5: deadend/corridor, depth=(1,2,3),
     # distances=(short,mid)=5,10, 1 seed
     # 2 scenarios * 3 depths * 2 distances * 1 seed = 12
-    print("Generating Level 5 (deadend & corridor, obs=15)...")
+    print("Generating Level 5 (deadend & corridor, obs=10)...")
     for scenario in ("deadend", "corridor"):
-        for depth in (2, 3, 4):
-            for dist in short_mid_dist_labels:
+        for depth in (3, 4, 5):
+            for dist in mid_long_dist_labels:
                 seed = 0
                 all_meta.append(
                     generate_structured_scenario(
@@ -579,7 +580,7 @@ def main() -> None:
                         depth=depth,
                         distance=dist,
                         seed=seed,
-                        obstacles=15,
+                        obstacles=10,
                     )
                 )
 

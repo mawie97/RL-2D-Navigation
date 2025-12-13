@@ -1,4 +1,4 @@
-<mujoco model="lvl5_corridor_obs15_d10_depth4_seed0">
+<mujoco model="lvl5_deadend_obs10_d10_depth4_seed0">
     <compiler angle="degree" coordinate="local" inertiafromgeom="true"/>
     <option integrator="RK4" timestep="0.01"/>
 
@@ -37,27 +37,22 @@
         </body>
         
 
-                <body name="agent" pos="8.0000 -4.0000 0.250">
+                <body name="agent" pos="0.0000 -6.0000 0.250">
             <joint name="j1" type="slide" axis ="1 0 0 "/>
             <joint name="j2" type="slide" axis ="0 1 0 "/>
             <geom name="agent_geom" type="box" size="0.25 0.25 0.250" rgba="1 1 0 1"/>
         </body>
 
 
-        <body name="obstacle1" pos="6.1838 -2.1899 0.250">  <geom name="obstacle1_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle2" pos="7.8408 -2.1848 0.250">  <geom name="obstacle2_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle3" pos="10.0070 -1.9387 0.250">  <geom name="obstacle3_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle4" pos="6.1272 -4.0251 0.250">  <geom name="obstacle4_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle5" pos="5.8255 -6.0846 0.250">  <geom name="obstacle5_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle6" pos="10.0381 -5.9182 0.250">  <geom name="obstacle6_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle7" pos="11.8995 -5.9087 0.250">  <geom name="obstacle7_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle8" pos="14.1916 -5.9534 0.250">  <geom name="obstacle8_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle9" pos="11.9826 -8.0544 0.250">  <geom name="obstacle9_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle10" pos="14.0915 -7.8905 0.250">  <geom name="obstacle10_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle11" pos="8.0347 -10.1045 0.250">  <geom name="obstacle11_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle12" pos="10.0178 -9.9663 0.250">  <geom name="obstacle12_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle13" pos="12.0016 -10.0349 0.250">  <geom name="obstacle13_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
-        <body name="obstacle14" pos="14.1024 -9.9253 0.250">  <geom name="obstacle14_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle1" pos="1.8021 0.0078 0.250">  <geom name="obstacle1_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle2" pos="-0.0735 -2.0279 0.250">  <geom name="obstacle2_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle3" pos="5.8390 -2.1927 0.250">  <geom name="obstacle3_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle4" pos="-2.1815 -4.1953 0.250">  <geom name="obstacle4_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle5" pos="4.1071 -4.0697 0.250">  <geom name="obstacle5_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle6" pos="-2.1873 -5.9700 0.250">  <geom name="obstacle6_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle7" pos="1.8223 -6.0673 0.250">  <geom name="obstacle7_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle8" pos="-1.8531 -7.8687 0.250">  <geom name="obstacle8_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle9" pos="0.1579 -7.9607 0.250">  <geom name="obstacle9_geom" type="box" size="0.8000 0.8000 0.250" rgba="0 1 0 1"/></body>
 
 
     </worldbody>
@@ -74,11 +69,6 @@
         <distance name="dist7" geom1="agent_geom" geom2="obstacle7_geom" cutoff="1.5"/>
         <distance name="dist8" geom1="agent_geom" geom2="obstacle8_geom" cutoff="1.5"/>
         <distance name="dist9" geom1="agent_geom" geom2="obstacle9_geom" cutoff="1.5"/>
-        <distance name="dist10" geom1="agent_geom" geom2="obstacle10_geom" cutoff="1.5"/>
-        <distance name="dist11" geom1="agent_geom" geom2="obstacle11_geom" cutoff="1.5"/>
-        <distance name="dist12" geom1="agent_geom" geom2="obstacle12_geom" cutoff="1.5"/>
-        <distance name="dist13" geom1="agent_geom" geom2="obstacle13_geom" cutoff="1.5"/>
-        <distance name="dist14" geom1="agent_geom" geom2="obstacle14_geom" cutoff="1.5"/>
 </sensor>
 
     <actuator>

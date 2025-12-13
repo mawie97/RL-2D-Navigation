@@ -186,7 +186,7 @@ class SymbolicScenarioGenerator:
             s.add(Sum(dead_endpoint_flags) == 2)
 
             # at least one endpoint is a geometric leaf
-            s.add(Sum(dead_leaf_endpoint_flags) >= 1)
+            s.add(Sum(dead_leaf_endpoint_flags) == 1)
 
             # strict length: #cells == min_deadend_depth + 1 (edges)
             s.add(Sum(dead_path_cells) == min_deadend_depth + 1)
@@ -275,7 +275,6 @@ class SymbolicScenarioGenerator:
             path_cells_list: List[Coord] = []
             for r in range(H):
                 for c in range(W):
-                    # type: ignore[name-defined]  # dead_path exists if deadend True
                     if is_true(m.evaluate(dead_path[r][c])):
                         path_cells_list.append((r, c))
 
@@ -284,63 +283,69 @@ class SymbolicScenarioGenerator:
 
                 def path_neighbors(rc: Coord) -> List[Coord]:
                     rr, cc = rc
-                    return [
-                        (nr, nc)
-                        for (nr, nc) in nbrs(rr, cc)
-                        if (nr, nc) in path_set
-                    ]
+                    return [(nr, nc) for (nr, nc) in nbrs(rr, cc) if (nr, nc) in path_set]
 
+                # endpoints of the deadend path (degree 1 inside the dead_path graph)
                 endpoints = [rc for rc in path_cells_list if len(path_neighbors(rc)) == 1]
 
-                if endpoints:
-                    start = endpoints[0]
-                else:
-                    start = path_cells_list[0]
+                def free_degree(rc: Coord) -> int:
+                    rr, cc = rc
+                    deg = 0
+                    for (nr, nc) in nbrs(rr, cc):
+                        if inb(nr, nc) and (not is_true(m.evaluate(wall[nr][nc]))):
+                            deg += 1
+                    return deg
 
-                ordered: List[Coord] = [start]
-                prev: Optional[Coord] = None
-                cur: Coord = start
+                # the “tip” should be the endpoint that is also a free-graph leaf
+                leaf_endpoints = [rc for rc in endpoints if free_degree(rc) == 1]
 
-                while True:
-                    nbs = [nb for nb in path_neighbors(cur) if nb != prev]
-                    if not nbs:
-                        break
-                    nxt = nbs[0]
-                    ordered.append(nxt)
-                    prev, cur = cur, nxt
+                # pick start/end deterministically
+                start: Optional[Coord] = None
+                end: Optional[Coord] = None
 
-                deadend_path = ordered
+                if leaf_endpoints and len(endpoints) >= 2:
+                    # if you added ==1 constraint, this should be unique
+                    tip = leaf_endpoints[0]
+                    other = endpoints[0] if endpoints[0] != tip else endpoints[1]
+                    start, end = other, tip
 
-                # choose which endpoint is the "dead-end"
-                candidates = [deadend_path[0], deadend_path[-1]]
-                best: Optional[Tuple[Coord, int]] = None
-                for (r, c) in candidates:
-                    dv = m.evaluate(dist[r][c]).as_long()
-                    if dv >= min_deadend_depth:
-                        if best is None or dv > best[1]:
-                            best = ((r, c), dv)
-
-                if best is not None:
-                    chosen_dead, chosen_depth = best
-                else:
-                    # fallback: deeper endpoint even if < min_deadend_depth
-                    e1 = deadend_path[0]
-                    e2 = deadend_path[-1]
+                elif len(endpoints) >= 2:
+                    # fallback: use dist to choose farther endpoint as tip
+                    e1, e2 = endpoints[0], endpoints[1]
                     dv1 = m.evaluate(dist[e1[0]][e1[1]]).as_long()
                     dv2 = m.evaluate(dist[e2[0]][e2[1]]).as_long()
-                    if dv1 >= dv2:
-                        chosen_dead, chosen_depth = e1, dv1
+                    if dv1 <= dv2:
+                        start, end = e1, e2
+                        chosen_depth = dv2
                     else:
-                        chosen_dead, chosen_depth = e2, dv2
+                        start, end = e2, e1
+                        chosen_depth = dv1
 
-                # orient so deadend_path[0] == chosen_dead
-                if chosen_dead is not None and deadend_path and deadend_path[0] != chosen_dead:
-                    if deadend_path[-1] == chosen_dead:
-                        deadend_path = list(reversed(deadend_path))
-        else:
-            chosen_dead = None
-            chosen_depth = -1
-            deadend_path = []
+                # build ordered chain start->end
+                if start is not None and end is not None:
+                    ordered: List[Coord] = [start]
+                    prev: Optional[Coord] = None
+                    cur: Coord = start
+
+                    while cur != end:
+                        nbs = [nb for nb in path_neighbors(cur) if nb != prev]
+                        if not nbs:
+                            break
+                        nxt = nbs[0]  # deadend path is a chain
+                        ordered.append(nxt)
+                        prev, cur = cur, nxt
+
+                    deadend_path = ordered
+
+                    # tip is the last cell if we successfully reached end, otherwise still use last
+                    chosen_dead = deadend_path[-1]
+                    if chosen_depth < 0:
+                        chosen_depth = m.evaluate(dist[chosen_dead[0]][chosen_dead[1]]).as_long()
+                else:
+                    deadend_path = []
+                    chosen_dead = None
+                    chosen_depth = -1
+
 
         # ----- extract corridor path -----
         corridor_path: List[Coord] = []
