@@ -1,7 +1,7 @@
 import numpy as np
 
 # --- Environment parameters ---
-N_RAYS = 12                # Number of rays for sensors
+N_RAYS = 12                # Number of rays for sensors can't be changed
 RAY_LENGTH = 1.6           # Length of each ray
 NOISE_STD  = 0.0           # Standard deviation of noise added to ray sensors
 MAX_STEPS = 600            # Maximum steps per episode
@@ -25,4 +25,4 @@ GOAL_THRESHOLD = 0.3       # Distance threshold for goal to be considered reache
 
 
 # --- History length for stuck detection ---
-POSITION_HISTORY_LEN = 50  # Number of previous positions to track for stuck detection
+POSITION_HISTORY_LEN = 20  # Number of previous positions to track for stuck detection
