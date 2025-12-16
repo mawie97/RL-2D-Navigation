@@ -5,12 +5,17 @@
 #SBATCH --partition=scavenge
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
+#SBATCH --mem=8G
 #SBATCH --time=24:00:00
 
-source ../venv/bin/activate
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
-
+cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs
 
-python run_train_env.py
+module purge
+module load Python/3.12.3-GCCcore-13.3.0
+
+source /home/rusu/Thesis_Project/venv/bin/activate
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+python navppo/run_train_env.py
