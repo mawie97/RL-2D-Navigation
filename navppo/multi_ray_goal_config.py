@@ -16,12 +16,12 @@ MAX_Y = 0.1                # Maximum movement per step in Y direction
 
 
 # --- Reward parameters ---
-TIME_PENALTY = -0.01       # Penalty per time step to encourage faster completion
+TIME_PENALTY = -0.05       # Penalty per time step to encourage faster completion
 STUCK_PENALTY = -0.5        # Penalty applied if agent is stuck
 
 
 # --- Goal parameters ---
-GOAL_THRESHOLD = 0.3       # Distance threshold for goal to be considered reached
+GOAL_THRESHOLD = 0.4       # Distance threshold for goal to be considered reached
 
 
 # --- History length for stuck detection ---

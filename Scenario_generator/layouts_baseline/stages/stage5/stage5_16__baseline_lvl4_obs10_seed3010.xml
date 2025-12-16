@@ -31,7 +31,7 @@
         </body>
         
         <!-- Goal -->
-        <body name="goal" pos="12.000 12.000 0">
+        <body name="goal" pos="12.000 -12.000 0">
             <geom name="goal_geom" type="plane" size="0.5 0.5 1" pos="0 0 0" rgba="1 0 0 1"/>
         </body>
 
@@ -58,37 +58,37 @@
             size="0.800 0.800 0.250"
             rgba="0 1 0 1"/>
     </body>
-    <body name="obstacle4" pos="7.490 -4.051 0.250">
+    <body name="obstacle4" pos="-4.509 12.884 0.250">
       <geom name="obstacle4_geom" type="box"
             size="0.800 0.800 0.250"
             rgba="0 1 0 1"/>
     </body>
-    <body name="obstacle5" pos="-4.509 12.884 0.250">
+    <body name="obstacle5" pos="-10.357 -0.617 0.250">
       <geom name="obstacle5_geom" type="box"
             size="0.800 0.800 0.250"
             rgba="0 1 0 1"/>
     </body>
-    <body name="obstacle6" pos="-10.357 -0.617 0.250">
+    <body name="obstacle6" pos="-9.530 4.140 0.250">
       <geom name="obstacle6_geom" type="box"
             size="0.800 0.800 0.250"
             rgba="0 1 0 1"/>
     </body>
-    <body name="obstacle7" pos="-9.530 4.140 0.250">
+    <body name="obstacle7" pos="13.214 -13.746 0.250">
       <geom name="obstacle7_geom" type="box"
             size="0.800 0.800 0.250"
             rgba="0 1 0 1"/>
     </body>
-    <body name="obstacle8" pos="13.214 -13.746 0.250">
+    <body name="obstacle8" pos="10.951 -18.062 0.250">
       <geom name="obstacle8_geom" type="box"
             size="0.800 0.800 0.250"
             rgba="0 1 0 1"/>
     </body>
-    <body name="obstacle9" pos="10.951 -18.062 0.250">
+    <body name="obstacle9" pos="4.247 9.895 0.250">
       <geom name="obstacle9_geom" type="box"
             size="0.800 0.800 0.250"
             rgba="0 1 0 1"/>
     </body>
-    <body name="obstacle10" pos="4.247 9.895 0.250">
+    <body name="obstacle10" pos="-10.593 7.665 0.250">
       <geom name="obstacle10_geom" type="box"
             size="0.800 0.800 0.250"
             rgba="0 1 0 1"/>

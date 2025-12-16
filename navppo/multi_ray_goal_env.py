@@ -191,18 +191,18 @@ class MujocoGoalEnv(gym.Env):
     def adjust_raw_rays(self, raw_readings, noise_std):
         # raw_readings: np.array of length 12
         offsets = np.array([
-            0.5,   # 0°
-            0.577, # 30°
-            0.577, # 60°
-            0.5,   # 90°
-            0.577, # 120°
-            0.577, # 150°
-            0.5,   # 180°
-            0.577, # 210°
-            0.577, # 240°
-            0.5,   # 270°
-            0.577, # 300°
-            0.577  # 330°
+            0.25,      # 0°
+            0.288675,  # 30°
+            0.288675,  # 60°
+            0.25,      # 90°
+            0.288675,  # 120°
+            0.288675,  # 150°
+            0.25,      # 180°
+            0.288675,  # 210°
+            0.288675,  # 240°
+            0.25,      # 270°
+            0.288675,  # 300°
+            0.288675   # 330°
         ])
         
         # Replace -1 (no hit) with 1.6 (max range + margin)
@@ -365,7 +365,7 @@ class MujocoGoalEnv(gym.Env):
 
         if self._is_out_of_bounds(current_pos):
             # print(f"Out of bounds: {current_pos}")
-            reward -= 100
+            reward -= 200
             status = "Out_of_bounds"
             if hasattr(self, "episode_log_writer"):
                 self.episode_log_writer.writerow([self.episode_count, status])
@@ -385,7 +385,7 @@ class MujocoGoalEnv(gym.Env):
         # End episode if max steps reached
         if self.steps >= self.max_steps:
             # print(f"Exceed max steps!  Max Steps: {self.max_steps}")
-            reward -= 100
+            reward -= 200
             status = "Over_max_steps"
             if hasattr(self, "episode_log_writer"):
                 self.episode_log_writer.writerow([self.episode_count, status])
@@ -469,7 +469,7 @@ class MujocoGoalEnv(gym.Env):
     def _calculate_rewards(self, current_pos, current_distance_to_goal, surface_distances):
         time_penalty = TIME_PENALTY
         distance_reward = 1 - (current_distance_to_goal / self.max_distance) # Reward between 0 and 1, where 1 is the closest to the goal
-        distance_change_reward = np.clip((self.prev_distance - current_distance_to_goal) / 0.15, -1, 1) # 0.15 is the maximum distance per steps
+        distance_change_reward = np.clip((self.prev_distance - current_distance_to_goal - 0.01) / 0.15, -1, 1) # 0.15 is the maximum distance per steps
         dist_obstacle_reward = self.check_obstacle_distance() # Reward range [-1, 0]
         openness_reward = 0.0
         
@@ -492,9 +492,9 @@ class MujocoGoalEnv(gym.Env):
 
             
         # Emphasize the reward for avoiding obstacles
-        sum_reward = (0.5 * distance_reward + 1 * distance_change_reward + 2 * dist_obstacle_reward + 0.5 * openness_reward + backtrack_reward + time_penalty)
+        sum_reward = (0.2 * distance_reward + 0.8 * distance_change_reward + 2 * dist_obstacle_reward + 0.5 * openness_reward + backtrack_reward + time_penalty)
 
-        return sum_reward, 1 * distance_change_reward, 0.5 * distance_reward, 2 * dist_obstacle_reward, 0.5 * openness_reward, backtrack_reward
+        return sum_reward, 0.8 * distance_change_reward, 0.2 * distance_reward, 2 * dist_obstacle_reward, 0.5 * openness_reward, backtrack_reward
     
     def check_obstacle_distance(self):
         obstacle_distance_penalty = 0.0

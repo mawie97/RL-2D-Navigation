@@ -7,14 +7,14 @@ X_MIN, X_MAX = -19.2, 19.2
 Y_MIN, Y_MAX = -19.2, 19.2
 
 AGENT_GOAL_MIN_DIST = 2.0        # avoid trivial start on top of goal
-OBST_MIN_DIST_AGENT_GOAL = 0.8   # avoid put obstacle on the agent and the goal
-OBST_MIN_DIST_BETWEEN = 1.0      # avoid obstacles overlap
+OBST_MIN_DIST_AGENT_GOAL = 2   # avoid put obstacle on the agent and the goal
+OBST_MIN_DIST_BETWEEN = 2      # avoid obstacles overlap
 
 OBST_SIZE_X = 0.8
 OBST_SIZE_Y = 0.8
 OBST_SIZE_Z = 0.25
 
-GOAL_POS: Tuple[float, float] = (12.0, 12.0)
+GOAL_POS: Tuple[float, float] = (12.0, -12.0)
 
 OUTPUT_ROOT = "layouts_baseline"
 
@@ -229,7 +229,7 @@ def generate_all_levels(output_root: str = OUTPUT_ROOT):
     generate_level(
         level_id=5,
         out_dir=os.path.join(output_root, "L5"),
-        obstacle_pattern=[(10, 4), (12, 4), (14, 4)],
+        obstacle_pattern=[(10, 4), (10, 4), (10, 4)],
         start_seed=4000,
     )
 
