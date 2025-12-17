@@ -75,9 +75,9 @@ class MujocoGoalEnv(gym.Env):
         self.prev_dist_to_entry = 0.0
         self.escape_good_steps = 0  
 
-        self.STUCK_HOLD_STEPS = 30 
-        self.ESCAPE_CONFIRM_STEPS = 5
-        self.ENTRY_ESCAPE_DIST = 0.6 
+        self.STUCK_HOLD_STEPS = 100 
+        self.ESCAPE_CONFIRM_STEPS = 50
+        self.ENTRY_ESCAPE_DIST = 3
 
 
         self.headless = headless
@@ -145,7 +145,7 @@ class MujocoGoalEnv(gym.Env):
         self.max_y = MAX_Y
         self.action_space = spaces.Box(low=np.array([-self.max_x, -self.max_y]), high=np.array([self.max_x, self.max_y]), dtype=np.float32)
         
-        obs_dim = 2 + 1 + 1 + self.n_rays
+        obs_dim = 2 + 1 + 1 + 2 + 1 + self.n_rays
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
     
     def _reset_episode_state(self):
@@ -294,12 +294,21 @@ class MujocoGoalEnv(gym.Env):
 
         stuck_flag = 1.0 if self.stuck else 0.0
 
-        obs = np.array([rel_goal[0], rel_goal[1], distance_to_goal, stuck_flag, *self.last_surface_distances], dtype=np.float32)
+        deadend_rel = np.zeros(2, dtype=np.float32)
+        deadend_dist = 0.0
+
+        if self.stuck and self.deadend_entry_pos is not None:
+            deadend_rel = (self.deadend_entry_pos - agent_pos).astype(np.float32)
+            deadend_dist = float(np.linalg.norm(deadend_rel))
+
+
+        obs = np.array([rel_goal[0], rel_goal[1], distance_to_goal, stuck_flag, deadend_rel[0], deadend_rel[1],
+                         deadend_dist, *self.last_surface_distances], dtype=np.float32)
 
         return obs
     
     def step(self, action):
-        reward, done  = 0, False
+        reward, done = 0, False
         status = ""
         
         delta_x, delta_y = action
@@ -492,9 +501,9 @@ class MujocoGoalEnv(gym.Env):
 
             
         # Emphasize the reward for avoiding obstacles
-        sum_reward = (0.2 * distance_reward + 0.8 * distance_change_reward + 2 * dist_obstacle_reward + 0.5 * openness_reward + backtrack_reward + time_penalty)
+        sum_reward = (0.2 * distance_reward + 0.8 * distance_change_reward + 2 * dist_obstacle_reward + 0.2 * openness_reward + 2.5 * backtrack_reward + time_penalty)
 
-        return sum_reward, 0.8 * distance_change_reward, 0.2 * distance_reward, 2 * dist_obstacle_reward, 0.5 * openness_reward, backtrack_reward
+        return sum_reward, 0.8 * distance_change_reward, 0.2 * distance_reward, 2 * dist_obstacle_reward, 0.2 * openness_reward, 2.5 *  backtrack_reward
     
     def check_obstacle_distance(self):
         obstacle_distance_penalty = 0.0
