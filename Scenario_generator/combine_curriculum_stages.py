@@ -3,8 +3,8 @@ import re
 import glob
 import shutil
 
-BASE_ROOT = "layouts_baseline"
-# BASE_ROOT = "layouts_scenerio"
+# BASE_ROOT = "layouts_baseline"
+BASE_ROOT = "layouts_scenerio"
 STAGES_ROOT = os.path.join(BASE_ROOT, "stages")
 
 
