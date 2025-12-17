@@ -542,7 +542,6 @@ def main() -> None:
 
     # We'll use only short + mid distances (labels 5 and 10)
     all_dist_labels = ("short", "mid", "long")
-    short_mid_dist_labels = ("short","mid")
     mid_long_dist_labels = ("mid","long")
 
     # Level 1: obstacles=0, ~10 scenarios
@@ -577,10 +576,10 @@ def main() -> None:
     # Level 4: obstacles=(6,8,10), 2 seeds
     # 3 obs * 2 distances * 2 seeds = 12
     print("Generating Level 4 (standard, obs=6,8,10)...")
-    for obs in (6, 8, 10):
+    for obs in (6, 7, 8):
         for dist in mid_long_dist_labels:
             for _ in range(2):
-                seed = global_seed
+                seed = global_seed + 100
                 global_seed += 1
                 all_meta.append(generate_standard_scenario(4, obs, dist, seed))
 
