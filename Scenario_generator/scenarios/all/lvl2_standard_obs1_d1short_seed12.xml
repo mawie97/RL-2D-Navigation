@@ -44,7 +44,7 @@
         </body>
 
 
-        <body name="obstacle1" pos="1.9626 0.0885 0.250">  <geom name="obstacle1_geom" type="box" size="0.9000 0.9000 0.250" rgba="0 1 0 1"/></body>
+        <body name="obstacle1" pos="1.9666 0.0717 0.250">  <geom name="obstacle1_geom" type="box" size="0.9000 0.9000 0.250" rgba="0 1 0 1"/></body>
 
 
     </worldbody>

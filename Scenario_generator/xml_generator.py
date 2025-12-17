@@ -338,6 +338,7 @@ def generate_standard_scenario(
     obstacles: int,
     distance: DistanceLabel,
     seed: int,
+    bresenhamRadius: int = 1,
 ) -> ScenarioMeta:
     rng = random.Random(seed)
     target = TARGET_DEFAULT
@@ -369,6 +370,7 @@ def generate_standard_scenario(
         agent=agent,
         target=target,
         exact_walls=obstacles,
+        neighbor_radius=bresenhamRadius,
         min_walls=None,
         max_walls=None,
         rng=rng,
@@ -581,7 +583,7 @@ def main() -> None:
             for _ in range(2):
                 seed = global_seed + 100
                 global_seed += 1
-                all_meta.append(generate_standard_scenario(4, obs, dist, seed))
+                all_meta.append(generate_standard_scenario(4, obs, dist, seed, bresenhamRadius=2))
 
     # Level 5: deadend/corridor, depth=(1,2,3),
     # distances=(short,mid)=5,10, 1 seed
