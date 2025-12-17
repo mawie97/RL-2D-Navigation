@@ -538,7 +538,7 @@ def generate_structured_scenario(
 
 def main() -> None:
     all_meta: List[ScenarioMeta] = []
-    global_seed = 0
+    global_seed = 1
 
     # We'll use only short + mid distances (labels 5 and 10)
     all_dist_labels = ("short", "mid", "long")

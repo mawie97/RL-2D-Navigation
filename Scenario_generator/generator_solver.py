@@ -193,6 +193,15 @@ class SymbolicScenarioGenerator:
 
         # ----- corridor simple path + roomy endpoints -----
         if corridor:
+            def straight_at(rr: int, cc: int):
+                """If cell (rr,cc) is on the corridor path and internal, its two path-neighbors must be opposite."""
+                UU = path[rr-1][cc] if inb(rr-1, cc) else False
+                DD = path[rr+1][cc] if inb(rr+1, cc) else False
+                LL = path[rr][cc-1] if inb(rr, cc-1) else False
+                RR = path[rr][cc+1] if inb(rr, cc+1) else False
+                # straight means either vertical (UU & DD) or horizontal (LL & RR)
+                return Or(And(UU, DD), And(LL, RR))
+
             n_corr = min_corridorLength
 
             path = [[Bool(f"p_{r}_{c}") for c in range(W)] for r in range(H)]
@@ -217,6 +226,25 @@ class SymbolicScenarioGenerator:
 
                     degP = Sum(If(path[nr][nc], 1, 0) for (nr, nc) in nbs)
                     degFree = Sum(If(Not(wall[nr][nc]), 1, 0) for (nr, nc) in nbs)
+
+                    # --- forbid a turn immediately after an endpoint ---
+                    # If (r,c) is an endpoint, then its unique neighbor (whichever direction) must be straight.
+                    U = path[r-1][c] if inb(r-1, c) else False
+                    D = path[r+1][c] if inb(r+1, c) else False
+                    L = path[r][c-1] if inb(r, c-1) else False
+                    R = path[r][c+1] if inb(r, c+1) else False
+
+                    conds = []
+                    if inb(r-1, c):
+                        conds.append(Implies(And(endpoint[r][c], U), straight_at(r-1, c)))
+                    if inb(r+1, c):
+                        conds.append(Implies(And(endpoint[r][c], D), straight_at(r+1, c)))
+                    if inb(r, c-1):
+                        conds.append(Implies(And(endpoint[r][c], L), straight_at(r, c-1)))
+                    if inb(r, c+1):
+                        conds.append(Implies(And(endpoint[r][c], R), straight_at(r, c+1)))
+
+                    s.add(*conds)
 
                     s.add(
                         Implies(
@@ -252,8 +280,8 @@ class SymbolicScenarioGenerator:
             # exactly one chain: two endpoints
             s.add(Sum(endpoints_list) == 2)
 
-            # strict length: #cells == n_corr + 1
-            s.add(Sum(path_cells) == n_corr + 1)
+            # strict length: #cells == n_corr + 2
+            s.add(Sum(path_cells) == n_corr + 2)
 
         # ----- solve -----
         t0 = time.time()
@@ -344,12 +372,10 @@ class SymbolicScenarioGenerator:
         # ----- extract corridor path -----
         corridor_path: List[Coord] = []
         if corridor:
-
             corridor_cells: List[Coord] = []
             for r in range(H):
                 for c in range(W):
-                    # type: ignore[name-defined]  # path exists if corridor True
-                    if is_true(m.evaluate(path[r][c])):
+                    if is_true(m.evaluate(path[r][c])):   # path[][] exists if corridor True
                         corridor_cells.append((r, c))
 
             if corridor_cells:
@@ -357,21 +383,20 @@ class SymbolicScenarioGenerator:
 
                 def corr_neighbors(rc: Coord) -> List[Coord]:
                     rr, cc = rc
-                    return [
-                        (nr, nc)
-                        for (nr, nc) in nbrs(rr, cc)
-                        if (nr, nc) in corridor_set
-                    ]
+                    return [(nr, nc) for (nr, nc) in nbrs(rr, cc) if (nr, nc) in corridor_set]
 
-                corr_endpoints = [
-                    rc for rc in corridor_cells
-                    if len(corr_neighbors(rc)) == 1
-                ]
+                corr_endpoints = [rc for rc in corridor_cells if len(corr_neighbors(rc)) == 1]
 
                 if corr_endpoints:
-                    start = corr_endpoints[0]
+                    # deterministic start: closest endpoint to spawn by dist[][], tie-break lexicographically
+                    def dist_val(rc: Coord) -> int:
+                        rr, cc = rc
+                        return m.evaluate(dist[rr][cc]).as_long()
+
+                    start = min(corr_endpoints, key=lambda rc: (dist_val(rc), rc[0], rc[1]))
                 else:
-                    start = corridor_cells[0]
+                    # fallback deterministic start: smallest coordinate
+                    start = min(corridor_cells)
 
                 ordered_corr: List[Coord] = [start]
                 prev: Optional[Coord] = None
@@ -381,7 +406,11 @@ class SymbolicScenarioGenerator:
                     nbs = [nb for nb in corr_neighbors(cur) if nb != prev]
                     if not nbs:
                         break
+
+                    # deterministic next step if anything weird happens (should be 1 in a chain)
+                    nbs.sort()
                     nxt = nbs[0]
+
                     ordered_corr.append(nxt)
                     prev, cur = cur, nxt
 
