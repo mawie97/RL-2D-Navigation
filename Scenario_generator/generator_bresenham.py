@@ -45,7 +45,7 @@ class BresenhamStandardGenerator:
         exact_walls: Optional[int],
         min_walls: Optional[int],
         max_walls: Optional[int],
-        neighbor_radius: int = 2,
+        neighbor_radius: int = 1,
         rng: random.Random,
     ) -> list[list[bool]]:
         """
