@@ -19,7 +19,7 @@ model_dir = os.path.join(base_dir, "models")
 env_dir = os.path.join(base_dir, "envs")
 seed_value = 1234
 num_episodes = 1500
-headless = False
+headless = True
 
 print("[INFO] Loaded XMLs:", xml_paths)
 
