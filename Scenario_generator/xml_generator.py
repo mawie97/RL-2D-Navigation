@@ -72,7 +72,7 @@ def distance_band_for_label(label: DistanceLabel) -> Tuple[int, int]:
     if label == "short":
         return 3, 5
     if label == "mid":
-        return 6,9
+        return 8,9
     if label == "long":
         return 10, 14
     raise ValueError(f"Unsupported distance label: {label}")
