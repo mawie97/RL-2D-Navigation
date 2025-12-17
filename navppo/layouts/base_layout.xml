@@ -35,6 +35,13 @@
             <geom name="goal_geom" type="plane" size="0.5 0.5 1" pos="0 0 0" rgba="1 0 0 1"/>
         </body>
         </worldbody>
+
+        <!-- Agent -->
+        <body name="agent" pos="13.226 9.905 0.25">
+            <joint name="j1" type="slide" axis ="1 0 0 "/>
+            <joint name="j2" type="slide" axis ="0 1 0 "/>
+            <geom name="agent_geom" type="box" size="0.25 0.25 0.250" rgba="1 1 0 1"/>
+        </body>
     
     <actuator>
         <plugin joint="j1" plugin="mujoco.pid" instance="pid1" />
