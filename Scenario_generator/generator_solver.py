@@ -16,7 +16,7 @@ class SymbolicScenarioGenerator:
         W: int = 10,
         corridor: bool = False,
         deadend: bool = False,
-        min_deadend_depth: int = 3,
+        min_deadend_depth: int = 2,
         min_corridorLength: int = 3,
         corridor_endpoint_min_free_degree: int = 3,
         z3_seed: Optional[int] = None,
@@ -189,7 +189,7 @@ class SymbolicScenarioGenerator:
             s.add(Sum(dead_leaf_endpoint_flags) == 1)
 
             # strict length: #cells == min_deadend_depth + 1 (edges)
-            s.add(Sum(dead_path_cells) == min_deadend_depth + 1)
+            s.add(Sum(dead_path_cells) == min_deadend_depth+1)
 
         # ----- corridor simple path + roomy endpoints -----
         if corridor:
@@ -269,7 +269,6 @@ class SymbolicScenarioGenerator:
         # ----- extract deadend path -----
         deadend_path: List[Coord] = []
         chosen_dead: Optional[Coord] = None
-        chosen_depth: int = -1
 
         if deadend:
             path_cells_list: List[Coord] = []
@@ -316,10 +315,8 @@ class SymbolicScenarioGenerator:
                     dv2 = m.evaluate(dist[e2[0]][e2[1]]).as_long()
                     if dv1 <= dv2:
                         start, end = e1, e2
-                        chosen_depth = dv2
                     else:
                         start, end = e2, e1
-                        chosen_depth = dv1
 
                 # build ordered chain start->end
                 if start is not None and end is not None:
@@ -339,12 +336,9 @@ class SymbolicScenarioGenerator:
 
                     # tip is the last cell if we successfully reached end, otherwise still use last
                     chosen_dead = deadend_path[-1]
-                    if chosen_depth < 0:
-                        chosen_depth = m.evaluate(dist[chosen_dead[0]][chosen_dead[1]]).as_long()
                 else:
                     deadend_path = []
                     chosen_dead = None
-                    chosen_depth = -1
 
 
         # ----- extract corridor path -----
@@ -393,4 +387,4 @@ class SymbolicScenarioGenerator:
 
                 corridor_path = ordered_corr
 
-        return grid, chosen_dead, chosen_depth, deadend_path, corridor_path
+        return grid, chosen_dead, deadend_path, corridor_path
