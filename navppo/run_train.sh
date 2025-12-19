@@ -18,4 +18,6 @@ source /home/rusu/Thesis_Project/venv/bin/activate
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 
-python navppo/run_train_env.py
+python run_train_env.py
+
+
