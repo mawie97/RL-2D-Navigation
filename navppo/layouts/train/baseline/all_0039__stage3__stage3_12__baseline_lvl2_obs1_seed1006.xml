@@ -31,21 +31,21 @@
         </body>
         
         <!-- Goal -->
-        <body name="goal" pos="12.000 -12.000 0">
+        <body name="goal" pos="0.000 0.000 0">
             <geom name="goal_geom" type="plane" size="0.5 0.5 1" pos="0 0 0" rgba="1 0 0 1"/>
         </body>
 
         <!-- Agent -->
-        <body name="agent" pos="-5.890 -10.420 0.25">
+        <body name="agent" pos="-5.859 -10.366 0.25">
             <joint name="j1" type="slide" axis ="1 0 0 "/>
             <joint name="j2" type="slide" axis ="0 1 0 "/>
             <geom name="agent_geom" type="box" size="0.25 0.25 0.250" rgba="1 1 0 1"/>
         </body>
 
         
-    <body name="obstacle1" pos="-18.724 16.544 0.250">
+    <body name="obstacle1" pos="-18.627 16.458 0.250">
       <geom name="obstacle1_geom" type="box"
-            size="0.800 0.800 0.250"
+            size="0.900 0.900 0.250"
             rgba="0 1 0 1"/>
     </body>
     </worldbody>

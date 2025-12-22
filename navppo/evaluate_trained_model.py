@@ -7,10 +7,10 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from multi_ray_goal_env import MujocoGoalEnv
 
 current_dir = os.path.dirname(__file__)
-xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'eval'))
+xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'train', 'all'))
 xml_paths = sorted([os.path.join(xml_base_dir, f) for f in os.listdir(xml_base_dir) if f.endswith(".xml")])
 
-current_setup = "all_noise_0"
+current_setup = "Model_1_noise0"
 
 base_dir = os.path.join(current_dir, "runs", current_setup)
 
@@ -41,7 +41,7 @@ model = PPO.load(model_path)
 writer = SummaryWriter(log_dir=tensorboard_eval_log_dir)
 
 num_episodes = 0
-max_episodes = 50
+max_episodes = 130
 episode_rewards = []
 
 obs = eval_env.reset()
