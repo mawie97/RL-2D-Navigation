@@ -75,9 +75,11 @@ class MujocoGoalEnv(gym.Env):
         self.prev_dist_to_entry = 0.0
         self.escape_good_steps = 0  
 
-        self.STUCK_HOLD_STEPS = 100 
-        self.ESCAPE_CONFIRM_STEPS = 50
-        self.ENTRY_ESCAPE_DIST = 3
+        self.STUCK_HOLD_STEPS = 150 
+        # 50
+        self.ESCAPE_CONFIRM_STEPS = 20 
+        # 3
+        self.ENTRY_ESCAPE_DIST = 2 
 
 
         self.headless = headless
@@ -188,28 +190,14 @@ class MujocoGoalEnv(gym.Env):
         ray_directions = np.array(ray_directions, dtype=np.float64).reshape(-1)
         return ray_directions
 
-    def adjust_raw_rays(self, raw_readings, noise_std):
-        # raw_readings: np.array of length 12
-        offsets = np.array([
-            0.25,      # 0°
-            0.288675,  # 30°
-            0.288675,  # 60°
-            0.25,      # 90°
-            0.288675,  # 120°
-            0.288675,  # 150°
-            0.25,      # 180°
-            0.288675,  # 210°
-            0.288675,  # 240°
-            0.25,      # 270°
-            0.288675,  # 300°
-            0.288675   # 330°
-        ])
-        
+    def adjust_raw_rays(self, raw_readings, noise_std):        
         # Replace -1 (no hit) with 1.6 (max range + margin)
         raw_readings = np.where(raw_readings == -1, 1.6, raw_readings)
         
+        agent_radius = 0.25
+
         # Subtract offsets
-        surface_distances = raw_readings - offsets
+        surface_distances = raw_readings - agent_radius
         
         # Clip negative distances to zero
         surface_distances = np.clip(surface_distances, 0, None)
@@ -304,6 +292,9 @@ class MujocoGoalEnv(gym.Env):
 
         obs = np.array([rel_goal[0], rel_goal[1], distance_to_goal, stuck_flag, deadend_rel[0], deadend_rel[1],
                          deadend_dist, *self.last_surface_distances], dtype=np.float32)
+        
+        if self.stuck is True:
+            print(f"STUCK MODE ACTIVE at step {self.steps}, stuck_mode_steps left: {self.stuck_mode_steps}")
 
         return obs
     
@@ -321,16 +312,6 @@ class MujocoGoalEnv(gym.Env):
 
         # Move the agent to the target position and check for collision
         collided = self._move_agent_to_target(target_x, target_y)
-
-        # End episode if collision detected
-        if collided:
-            # print("Collision detected!")
-            reward -= 300
-            status = "Collision"
-            if hasattr(self, "episode_log_writer"):
-                self.episode_log_writer.writerow([self.episode_count, status])
-            self.episode_log_file.flush()
-            done = True
                     
         current_pos = self.data.xpos[self.agent_id][:2]
         self.position_history.append(current_pos.tolist())
@@ -347,12 +328,9 @@ class MujocoGoalEnv(gym.Env):
             self.escape_good_steps = 0
 
         self.stuck = (self.stuck_mode_steps > 0)
+
         surface_distances = self._update_surface_distances()
 
-
-        sum_reward, distance_change_reward, distance_reward, dist_obstacle_reward, openness_reward, backtrack_reward = self._calculate_rewards(current_pos, current_distance_to_goal, surface_distances)
-        reward += sum_reward
-        
         if self.stuck_mode_steps > 0:
             dist_to_entry = float(np.linalg.norm(current_pos - self.deadend_entry_pos))
             
@@ -371,6 +349,19 @@ class MujocoGoalEnv(gym.Env):
             else:
                 self.stuck_mode_steps -= 1
 
+        sum_reward, distance_change_reward, distance_reward, dist_obstacle_reward, openness_reward, backtrack_reward = self._calculate_rewards(current_pos, current_distance_to_goal, surface_distances)
+        reward += sum_reward
+        
+
+        # End episode if collision detected
+        if collided:
+            # print("Collision detected!")
+            reward -= 300
+            status = "Collision"
+            if hasattr(self, "episode_log_writer"):
+                self.episode_log_writer.writerow([self.episode_count, status])
+            self.episode_log_file.flush()
+            done = True
 
         if self._is_out_of_bounds(current_pos):
             # print(f"Out of bounds: {current_pos}")
@@ -528,8 +519,8 @@ class MujocoGoalEnv(gym.Env):
         x_range = max(xs) - min(xs)
         y_range = max(ys) - min(ys)
 
-        RANGE_THRESH = 0.3          # how small the movement box
-        NO_PROGRESS_STEPS = 20      # max steps with no improvement
+        RANGE_THRESH = 0.5          # how small the movement box
+        NO_PROGRESS_STEPS = 15      # max steps with no improvement
 
         small_region = (x_range < RANGE_THRESH) and (y_range < RANGE_THRESH)
         no_progress = (self.steps_since_improvement >= NO_PROGRESS_STEPS)
