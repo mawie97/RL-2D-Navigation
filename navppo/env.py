@@ -68,18 +68,11 @@ class MujocoGoalEnv(gym.Env):
         self.stuck = False
 
         self.last_surface_distances = None
-
-        # stuck escape (stage5+deadend)
-        self.stuck_mode_steps = 0    
-        self.deadend_entry_pos = None    
-        self.prev_dist_to_entry = 0.0
-        self.escape_good_steps = 0  
-
-        self.STUCK_HOLD_STEPS = 150 
-        # 20
-        self.ESCAPE_CONFIRM_STEPS = 50 
-        # 2
-        self.ENTRY_ESCAPE_DIST = 3 
+        
+        self.last_open_dir = np.zeros(2, dtype=np.float32)
+        self.last_open_strength = 0.0
+        self.stuck_mode_steps = 0
+        self.prev_open_strength = 0.0
 
 
         self.headless = headless
@@ -147,6 +140,7 @@ class MujocoGoalEnv(gym.Env):
         self.max_y = MAX_Y
         self.action_space = spaces.Box(low=np.array([-self.max_x, -self.max_y]), high=np.array([self.max_x, self.max_y]), dtype=np.float32)
         
+        # rel_goal(2), distance_to_goal, stuck_flag, open_dir(2), open_strength, rays(n_rays)
         obs_dim = 2 + 1 + 1 + 2 + 1 + self.n_rays
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
     
@@ -162,13 +156,9 @@ class MujocoGoalEnv(gym.Env):
         self.best_distance = np.inf
         self.steps_since_improvement = 0
         self.stuck = False
-
         self.stuck_mode_steps = 0
-        self.deadend_entry_pos = None
-        self.prev_dist_to_entry = 0.0
-        self.escape_good_steps = 0
+        self.prev_open_strength = 0.0
 
-    
     def _find_dist_sensor_ids(self):
         dist_sensor_ids = []
         for sensor_id in range(self.model.nsensor):
@@ -214,6 +204,46 @@ class MujocoGoalEnv(gym.Env):
             surface_distances = np.clip(surface_distances, 0, self.cutoff_value)
         
         return surface_distances
+    
+    def _compute_open_direction(self, surface_distances: np.ndarray, sector_width: int = 3):
+ 
+        d = np.asarray(surface_distances, dtype=np.float64)
+        n = d.shape[0]
+        if n == 0:
+            return 0.0, 0.0, 0.0
+
+        sector_width = int(max(1, min(sector_width, n)))
+
+        # if sector_width=3 then score[i] = d[i] + d[i+1] + d[i+2]
+        score = np.zeros(n, dtype=np.float64)
+        for k in range(sector_width):
+            score += np.roll(d, -k)
+
+        best_i = int(np.argmax(score))
+
+        # Build weighted direction from the best sector
+        vec = np.zeros(2, dtype=np.float64)
+        w_sum = 0.0
+        for k in range(sector_width):
+            idx = (best_i + k) % n
+            w = float(d[idx])
+            dx = float(self.ray_directions[3 * idx + 0])
+            dy = float(self.ray_directions[3 * idx + 1])
+            vec[0] += w * dx
+            vec[1] += w * dy
+            w_sum += w
+
+        norm = float(np.linalg.norm(vec))
+        if norm < 1e-8:
+            open_dir_x, open_dir_y = 0.0, 0.0
+        else:
+            open_dir_x, open_dir_y = float(vec[0] / norm), float(vec[1] / norm)
+
+        max_possible = sector_width * float(self.cutoff_value) + 1e-8
+        open_strength = float(np.clip(score[best_i] / max_possible, 0.0, 1.0))
+
+        return open_dir_x, open_dir_y, open_strength
+
 
     def seed(self, seed=None):
         self._seed = seed
@@ -264,11 +294,6 @@ class MujocoGoalEnv(gym.Env):
 
         self.last_surface_distances = None
         self._update_surface_distances()
-        self.stuck_mode_steps = 0
-        self.deadend_entry_pos = None
-        self.prev_dist_to_entry = 0.0
-        self.escape_good_steps = 0
-
 
     def _get_obs(self):
         goal_pos = self.data.xpos[self.goal_id][:2]
@@ -281,17 +306,12 @@ class MujocoGoalEnv(gym.Env):
             self._update_surface_distances()
 
         stuck_flag = 1.0 if self.stuck else 0.0
+        
+        open_dir_x = float(self.last_open_dir[0])
+        open_dir_y = float(self.last_open_dir[1])
+        open_strength = float(self.last_open_strength)
 
-        deadend_rel = np.zeros(2, dtype=np.float32)
-        deadend_dist = 0.0
-
-        if self.stuck and self.deadend_entry_pos is not None:
-            deadend_rel = (self.deadend_entry_pos - agent_pos).astype(np.float32)
-            deadend_dist = float(np.linalg.norm(deadend_rel))
-
-
-        obs = np.array([rel_goal[0], rel_goal[1], distance_to_goal, stuck_flag, deadend_rel[0], deadend_rel[1],
-                         deadend_dist, *self.last_surface_distances], dtype=np.float32)
+        obs = np.array([rel_goal[0], rel_goal[1], distance_to_goal, stuck_flag, open_dir_x, open_dir_y, open_strength, *self.last_surface_distances], dtype=np.float32)
         
         # if self.stuck is True:
         #     print(f"STUCK MODE ACTIVE at step {self.steps}, stuck_mode_steps left: {self.stuck_mode_steps}")
@@ -319,35 +339,37 @@ class MujocoGoalEnv(gym.Env):
         # print(f"{current_distance_to_goal}")
         
         self._update_progress(current_distance_to_goal)
-        stuck_trigger = self.is_stuck()
-        
-        if stuck_trigger and self.stuck_mode_steps == 0:
-            self.stuck_mode_steps = self.STUCK_HOLD_STEPS
-            self.deadend_entry_pos = current_pos.copy()
-            self.prev_dist_to_entry = 0
-            self.escape_good_steps = 0
-
-        self.stuck = (self.stuck_mode_steps > 0)
 
         surface_distances = self._update_surface_distances()
 
+        if self.stuck_mode_steps == 0:
+            if self.is_stuck_trigger():
+                self.stuck_mode_steps = 120  # try 80-150 or more
+                self.prev_open_strength = float(self.last_open_strength)
+                print (f"ENTER STUCK MODE at step {self.steps}, self.prev_open_strength {self.prev_open_strength}, current_pos: {current_pos}")
+
+
+        escaped_by_motion = False
+        if len(self.position_history) >= POSITION_HISTORY_LEN:
+            ESCAPE_RANGE = 1.2  # tune
+            xs = [p[0] for p in self.position_history]
+            ys = [p[1] for p in self.position_history]
+            x_range = (max(xs) - min(xs))
+            y_range = (max(ys) - min(ys))
+            escaped_by_motion = (x_range > ESCAPE_RANGE) or (y_range > ESCAPE_RANGE)
+
+        open_strength = float(self.last_open_strength)
+        escaped_by_openness = open_strength > 0.75 #Choose between these two
+        # escaped_by_openness = (open_strength > 0.7) and (open_strength > self.prev_open_strength + 0.15)
+        self.prev_open_strength = open_strength
+
         if self.stuck_mode_steps > 0:
-            dist_to_entry = float(np.linalg.norm(current_pos - self.deadend_entry_pos))
-            
-            escaped_now = (dist_to_entry > self.ENTRY_ESCAPE_DIST)
-
-            if escaped_now:
-                self.escape_good_steps += 1
-            else:
-                self.escape_good_steps = 0
-
-            if self.escape_good_steps >= self.ESCAPE_CONFIRM_STEPS:
+            if escaped_by_motion or escaped_by_openness:
                 self.stuck_mode_steps = 0
-                self.deadend_entry_pos = None
-                self.prev_dist_to_entry = 0.0
-                self.escape_good_steps = 0
             else:
                 self.stuck_mode_steps -= 1
+
+        self.stuck = (self.stuck_mode_steps > 0)
 
         sum_reward, distance_change_reward, distance_reward, dist_obstacle_reward, openness_reward, backtrack_reward = self._calculate_rewards(current_pos, current_distance_to_goal, surface_distances)
         reward += sum_reward
@@ -445,6 +467,11 @@ class MujocoGoalEnv(gym.Env):
     def _update_surface_distances(self):
         raw_readings = self._update_rays()
         self.last_surface_distances = self.adjust_raw_rays(raw_readings, NOISE_STD)
+
+        ox, oy, os = self._compute_open_direction(self.last_surface_distances, sector_width=3)
+        self.last_open_dir = np.array([ox, oy], dtype=np.float32)
+        self.last_open_strength = float(os)
+        
         return self.last_surface_distances
 
     def _move_agent_to_target(self, target_x, target_y):
@@ -475,21 +502,35 @@ class MujocoGoalEnv(gym.Env):
         
         backtrack_reward = 0.0
 
-        if self.stuck and self.deadend_entry_pos is not None:
-            dist_to_entry = float(np.linalg.norm(current_pos - self.deadend_entry_pos))
-            delta = dist_to_entry - self.prev_dist_to_entry
-            backtrack_reward = float(np.clip(delta / 0.15, -1, 1))
-            self.prev_dist_to_entry = dist_to_entry
+        mx, my = float(current_pos[0] - self.prev_pos[0]), float(current_pos[1] - self.prev_pos[1])  
+        ax, ay = mx, my
+        a_norm = float(np.hypot(ax, ay))
 
-        # if the agent is stuck
+        if a_norm > 1e-8:
+            a_dir = np.array([ax / a_norm, ay / a_norm], dtype=np.float32)
+        else:
+            a_dir = np.zeros(2, dtype=np.float32)
+
+        open_dir = self.last_open_dir
+        align = float(np.dot(a_dir, open_dir))  #[-1,1]      # if the agent is stuck
+        
+        align_pos = max(0.0, align)
+        align_neg = min(0.0, align)
+
+        strength = float(self.last_open_strength)  # [0,1]
+
+        open_move_reward = strength * align_pos
+        anti_open_penalty = - 0.3 * strength * abs(align_neg)
+        
         if self.stuck:
             # temporarily ignore the goal-distance attraction to encourage the get away
             distance_reward = 0.0
             distance_change_reward = 0.0
 
             time_penalty += STUCK_PENALTY
-            openness_reward = float(np.mean(surface_distances)/self.cutoff_value) # Reward between 0 and 1
-
+            # openness_reward = float(np.mean(surface_distances)/self.cutoff_value) # Reward between 0 and 1
+            openness_reward = 0
+            backtrack_reward = open_move_reward + anti_open_penalty
             
         # Emphasize the reward for avoiding obstacles
         sum_reward = (0.2 * distance_reward + 0.8 * distance_change_reward + 2 * dist_obstacle_reward + 0.2 * openness_reward + 2.5 * backtrack_reward + time_penalty)
@@ -509,7 +550,7 @@ class MujocoGoalEnv(gym.Env):
             obstacle_distance_penalty= (min_dist - self.cutoff_value)/ self.cutoff_value
             return obstacle_distance_penalty
     
-    def is_stuck(self):
+    def is_stuck_trigger(self):
         if len(self.position_history) < POSITION_HISTORY_LEN:
             return False
 
@@ -519,11 +560,16 @@ class MujocoGoalEnv(gym.Env):
         x_range = max(xs) - min(xs)
         y_range = max(ys) - min(ys)
 
-        RANGE_THRESH = 0.3          # how small the movement box 0.5
-        NO_PROGRESS_STEPS = 20      # max steps with no improvement 15
+        RANGE_THRESH = 0.5          # how small the movement box
+        NO_PROGRESS_STEPS = 15      # max steps with no improvement
 
         small_region = (x_range < RANGE_THRESH) and (y_range < RANGE_THRESH)
         no_progress = (self.steps_since_improvement >= NO_PROGRESS_STEPS)
+
+        # UNSTUCK_RANGE = 1.5
+
+        # if x_range > UNSTUCK_RANGE or y_range > UNSTUCK_RANGE:
+        #     return False
 
         return small_region and no_progress
     
