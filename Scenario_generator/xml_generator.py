@@ -24,7 +24,7 @@ BLOCK_H = 6
 BLOCK_W = 6
 
 # Single output folder
-OUT_ROOT = os.path.join("scenarios", "all")
+OUT_ROOT= os.path.join("scenarios", "l1_l4")
 
 # Path to base XML template
 BASE_XML_PATH = os.path.join(os.path.dirname(__file__), "base_layout.xml")
@@ -273,7 +273,7 @@ def build_xml_from_base(
         f'        <body name="agent" pos="{ax:.4f} {ay:.4f} {AGENT_HEIGHT:.3f}">\n'
         f'            <joint name="j1" type="slide" axis ="1 0 0 "/>\n'
         f'            <joint name="j2" type="slide" axis ="0 1 0 "/>\n'
-        f'            <geom name="agent_geom" type="box" '
+        f'            <geom name="agent_geom" type="cylinder" '
         f'size="0.25 0.25 {AGENT_HEIGHT:.3f}" rgba="1 1 0 1"/>\n'
         f'        </body>'
     )
@@ -540,73 +540,67 @@ def generate_structured_scenario(
 
 def main() -> None:
     all_meta: List[ScenarioMeta] = []
-    global_seed = 1
+    global_seed = 1001
 
     # We'll use only short + mid distances (labels 5 and 10)
     all_dist_labels = ("short", "mid", "long")
     mid_long_dist_labels = ("mid","long")
 
     # Level 1: obstacles=0, ~10 scenarios
-    # 2 distances * 5 seeds = 10
     print("Generating Level 1 (standard, obs=0)...")
     for dist in all_dist_labels:
-        for _ in range(3):
+        for _ in range(4):
             seed = global_seed
             global_seed += 1
             all_meta.append(generate_standard_scenario(1, 0, dist, seed))
 
 
     # Level 2: obstacles=1, ~10 scenarios
-    # 2 distances * 5 seeds = 10
     print("Generating Level 2 (standard, obs=1)...")
     for dist in all_dist_labels:
-        for _ in range(3):
+        for _ in range(4):
             seed = global_seed
             global_seed += 1
             all_meta.append(generate_standard_scenario(2, 1, dist, seed))
 
 
     # Level 3: obstacles=(2,3,5), 1 seed
-    # 3 obs * 3 distances * 1 seed = 9
     print("Generating Level 3 (standard, obs=2,3,5)...")
-    for obs in (2, 3, 5):
+    for obs in (2, 3, 4, 5):
         for dist in all_dist_labels:
             seed = global_seed
             global_seed += 1
             all_meta.append(generate_standard_scenario(3, obs, dist, seed))
 
     # Level 4: obstacles=(6,8,10), 2 seeds
-    # 3 obs * 2 distances * 2 seeds = 12
     print("Generating Level 4 (standard, obs=6,8,10)...")
-    for obs in (6, 7, 8):
+    for obs in (6, 7, 8, 9):
         for dist in mid_long_dist_labels:
             for _ in range(2):
                 seed = global_seed + 100
                 global_seed += 1
                 all_meta.append(generate_standard_scenario(4, obs, dist, seed, bresenhamRadius=2))
 
-    # Level 5: deadend/corridor, depth=(1,2,3),
-    # distances=(short,mid)=5,10, 1 seed
-    # 2 scenarios * 3 depths * 2 distances * 1 seed = 12
-    print("Generating Level 5 (deadend & corridor, obs=10)...")
-    for scenario in ("deadend", "corridor"):
-        for depth in (1, 2, 3):
-            for dist in mid_long_dist_labels:
-                seed = global_seed
-                global_seed += 1
-                all_meta.append(
-                    generate_structured_scenario(
-                        scenario=scenario,
-                        depth=depth,
-                        distance=dist,
-                        seed=seed,
-                        obstacles=10,
-                    )
-                )
+    # # Level 5: deadend/corridor, depth=(1,2,3),
+    # print("Generating Level 5 (deadend & corridor, obs=10)...")
+    # for scenario in ("deadend", "corridor"):
+    #     for depth in (1, 2, 3):
+    #         for dist in mid_long_dist_labels:
+    #             seed = global_seed
+    #             global_seed += 1
+    #             all_meta.append(
+    #                 generate_structured_scenario(
+    #                     scenario=scenario,
+    #                     depth=depth,
+    #                     distance=dist,
+    #                     seed=seed,
+    #                     obstacles=10,
+    #                 )
+    #             )
 
-    expected = 51  # 9 + 9 + 9 + 12 + 12
-    if len(all_meta) != expected:
-        raise RuntimeError(f"Expected {expected} scenarios in L1–5, got {len(all_meta)}")
+    # expected = 51  # 9 + 9 + 9 + 12 + 12
+    # if len(all_meta) != expected:
+    #     raise RuntimeError(f"Expected {expected} scenarios in L1–5, got {len(all_meta)}")
 
     print(
         f"Done. Levels 1-5: {len(all_meta)} scenarios, "
