@@ -3,7 +3,7 @@ import numpy as np
 # --- Environment parameters ---
 N_RAYS = 12                # Number of rays for sensors can't be changed
 RAY_LENGTH = 1.6           # Length of each ray
-NOISE_STD  = 0.01           # Standard deviation of noise added to ray sensors
+NOISE_STD  = 0.03           # Standard deviation of noise added to ray sensors
 MAX_STEPS = 800            # Maximum steps per episode
 CUTOFF_VALUE = 1.0         # Sensor cutoff distace, when < cutoff, get negative reward
 SWITCH_EVERY = 10          # Frequency to switch xml environments
