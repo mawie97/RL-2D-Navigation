@@ -25,6 +25,8 @@ BLOCK_W = 6
 
 # Single output folder
 OUT_ROOT= os.path.join("scenarios", "l1_l4")
+OUT_NAIVE = os.path.join("scenarios", "naive_random")
+
 
 # Path to base XML template
 BASE_XML_PATH = os.path.join(os.path.dirname(__file__), "base_layout.xml")
@@ -328,6 +330,141 @@ def write_xml_from_base(
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(xml)
 
+# def generate_naive_random_scenario(
+#     *,
+#     level: int,
+#     obstacles: int,
+#     distance: DistanceLabel,
+#     seed: int,
+#     out_dir: str = OUT_NAIVE,
+# ) -> ScenarioMeta:
+#     """
+#     Naive baseline:
+#     - agent sampled to satisfy same Manhattan distance bands to the fixed target
+#     - obstacles placed uniformly at random across the grid (no Bresenham bias)
+#     """
+#     rng = random.Random(seed)
+#     target = TARGET_DEFAULT
+
+#     # --- pick an agent position in the distance band ---
+#     band_min, band_max = 1, 14
+
+#     candidates: List[Coord] = []
+#     tr, tc = target
+#     for r in range(FULL_H):
+#         for c in range(FULL_W):
+#             if (r, c) == target:
+#                 continue
+#             d_line = abs(tr - r) + abs(tc - c)
+#             if band_min <= d_line <= band_max:
+#                 candidates.append((r, c))
+
+#     if not candidates:
+#         raise RuntimeError(
+#             f"No agent position with Manhattan distance in [{band_min},{band_max}] "
+#             f"for grid {FULL_H}x{FULL_W}"
+#         )
+
+#     agent = rng.choice(candidates)
+
+#     # --- build empty grid ---
+#     grid = [[False for _ in range(FULL_W)] for _ in range(FULL_H)]
+
+#     # --- place obstacles uniformly at random (excluding agent/target) ---
+#     forbidden = {agent, target}
+#     free_cells = [(r, c) for r in range(FULL_H) for c in range(FULL_W) if (r, c) not in forbidden]
+#     rng.shuffle(free_cells)
+
+#     to_place = min(obstacles, len(free_cells))
+#     for i in range(to_place):
+#         r, c = free_cells[i]
+#         grid[r][c] = True  # wall
+
+#     ensure_dir(out_dir)
+#     dist_tag = DIST_ORDER[distance]
+#     filename = f"lvl{level}_naive_obs{obstacles}_d{dist_tag}_seed{seed}.xml"
+#     out_path = os.path.join(out_dir, filename)
+
+#     write_xml_from_base(grid, agent, target, out_path)
+
+#     return ScenarioMeta(
+#         level=level,
+#         scenario="naive_random",
+#         obstacles=obstacles,
+#         distance=distance,
+#         seed=seed,
+#         depth=None,
+#         path=out_path,
+#     )
+
+# # Naive scenarios
+# def generate_naive_random_scenario(
+#     *,
+#     level: int,
+#     obstacles: int,
+#     distance: DistanceLabel,
+#     seed: int,
+#     out_dir: str = OUT_NAIVE,
+# ) -> ScenarioMeta:
+#     """
+#     Naive baseline:
+#     - agent sampled to satisfy same Manhattan distance bands to the fixed target
+#     - obstacles placed uniformly at random across the grid (no Bresenham bias)
+#     """
+#     rng = random.Random(seed)
+#     target = TARGET_DEFAULT
+
+#     # --- pick an agent position in the distance band ---
+#     band_min, band_max = distance_band_for_label(distance)
+
+#     candidates: List[Coord] = []
+#     tr, tc = target
+#     for r in range(FULL_H):
+#         for c in range(FULL_W):
+#             if (r, c) == target:
+#                 continue
+#             d_line = abs(tr - r) + abs(tc - c)
+#             if band_min <= d_line <= band_max:
+#                 candidates.append((r, c))
+
+#     if not candidates:
+#         raise RuntimeError(
+#             f"No agent position with Manhattan distance in [{band_min},{band_max}] "
+#             f"for grid {FULL_H}x{FULL_W}"
+#         )
+
+#     agent = rng.choice(candidates)
+
+#     # --- build empty grid ---
+#     grid = [[False for _ in range(FULL_W)] for _ in range(FULL_H)]
+
+#     # --- place obstacles uniformly at random (excluding agent/target) ---
+#     forbidden = {agent, target}
+#     free_cells = [(r, c) for r in range(FULL_H) for c in range(FULL_W) if (r, c) not in forbidden]
+#     rng.shuffle(free_cells)
+
+#     to_place = min(obstacles, len(free_cells))
+#     for i in range(to_place):
+#         r, c = free_cells[i]
+#         grid[r][c] = True  # wall
+
+#     ensure_dir(out_dir)
+#     dist_tag = DIST_ORDER[distance]
+#     filename = f"lvl{level}_naive_obs{obstacles}_d{dist_tag}_seed{seed}.xml"
+#     out_path = os.path.join(out_dir, filename)
+
+#     write_xml_from_base(grid, agent, target, out_path)
+
+#     return ScenarioMeta(
+#         level=level,
+#         scenario="naive_random",
+#         obstacles=obstacles,
+#         distance=distance,
+#         seed=seed,
+#         depth=None,
+#         path=out_path,
+#     )
+
 
 # ============================
 # Level 1–4: STANDARD scenarios
@@ -533,6 +670,44 @@ def generate_structured_scenario(
     )
 
 
+# def run_naive_random_level(
+#     *,
+#     n_files: int = 51,
+#     seed_start: int = 5000,
+#     out_dir: str = OUT_NAIVE,
+# ) -> List[ScenarioMeta]:
+#     """
+#     Create n_files naive-random scenarios with:
+#     - distance randomly chosen from same labels you already use
+#     - obstacle count randomly chosen from same *range* you care about
+#     """
+#     metas: List[ScenarioMeta] = []
+#     rng = random.Random(seed_start)
+
+#     # same distances you used earlier (change if you want only mid/long etc.)
+#     dist_choices: List[DistanceLabel] = ["short", "mid", "long"]
+
+#     # obstacle range: pick a range that matches your L1-L4 intent
+#     # Here: 0..9 (since you used 0,1,2-5,6-9)
+#     obs_min, obs_max = 0, 9
+
+#     seed = seed_start
+#     for i in range(n_files):
+#         dist = rng.choice(dist_choices)
+#         obs = rng.randint(obs_min, obs_max)
+
+#         metas.append(
+#             generate_naive_random_scenario(
+#                 level=99,           # arbitrary "level id" for baseline
+#                 obstacles=obs,
+#                 distance=dist,
+#                 seed=seed,
+#                 out_dir=out_dir,
+#             )
+#         )
+#         seed += 1
+
+#     return metas
 
 # ============================
 # Master driver
@@ -581,26 +756,30 @@ def main() -> None:
                 global_seed += 1
                 all_meta.append(generate_standard_scenario(4, obs, dist, seed, bresenhamRadius=2))
 
-    # # Level 5: deadend/corridor, depth=(1,2,3),
-    # print("Generating Level 5 (deadend & corridor, obs=10)...")
-    # for scenario in ("deadend", "corridor"):
-    #     for depth in (1, 2, 3):
-    #         for dist in mid_long_dist_labels:
-    #             seed = global_seed
-    #             global_seed += 1
-    #             all_meta.append(
-    #                 generate_structured_scenario(
-    #                     scenario=scenario,
-    #                     depth=depth,
-    #                     distance=dist,
-    #                     seed=seed,
-    #                     obstacles=10,
-    #                 )
-    #             )
+    # Level 5: deadend/corridor, depth=(1,2,3),
+    print("Generating Level 5 (deadend & corridor, obs=10)...")
+    for scenario in ("deadend", "corridor"):
+        for depth in (1, 2, 3):
+            for dist in mid_long_dist_labels:
+                seed = global_seed
+                global_seed += 1
+                all_meta.append(
+                    generate_structured_scenario(
+                        scenario=scenario,
+                        depth=depth,
+                        distance=dist,
+                        seed=seed,
+                        obstacles=10,
+                    )
+                )
 
     # expected = 51  # 9 + 9 + 9 + 12 + 12
     # if len(all_meta) != expected:
     #     raise RuntimeError(f"Expected {expected} scenarios in L1–5, got {len(all_meta)}")
+
+    # print("Generating Naive Random baseline (51 files)...")
+    # naive_meta = run_naive_random_level(n_files=51, seed_start=9000, out_dir=OUT_NAIVE)
+    # all_meta.extend(naive_meta)
 
     print(
         f"Done. Levels 1-5: {len(all_meta)} scenarios, "
