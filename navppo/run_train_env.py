@@ -10,7 +10,7 @@ env_class = MujocoGoalEnv
 
 current_dir = os.path.dirname(__file__)  # scripts/train
 xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'train', 'naive_random'))
-base_dir = os.path.abspath(os.path.join(current_dir, 'runs', 'naive_random_noise1'))
+base_dir = os.path.abspath(os.path.join(current_dir, 'runs', 'naive_random_noise3'))
 xml_paths = sorted([os.path.join(xml_base_dir, f) for f in os.listdir(xml_base_dir) if f.endswith(".xml")])
 
 log_dir = os.path.join(base_dir, "logs")
