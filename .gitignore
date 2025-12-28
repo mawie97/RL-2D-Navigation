@@ -263,3 +263,6 @@ gradle-app.setting
 
 #*.tfevents.*
 #*.csv
+
+__pycache__/
+*.pyc
