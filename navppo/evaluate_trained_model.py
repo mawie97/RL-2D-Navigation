@@ -14,7 +14,7 @@ current_setup = "Model_1_noise0_copy"
 
 base_dir = os.path.join(current_dir, "runs", current_setup)
 
-csv_log_path = os.path.join(base_dir, "eval", "log", "eval_log.csv")
+csv_log_path = os.path.join(base_dir, "eval", "lvl_1_5", "eval_log.csv")
 os.makedirs(os.path.dirname(csv_log_path), exist_ok=True)
 
 tensorboard_eval_log_dir = os.path.join(
