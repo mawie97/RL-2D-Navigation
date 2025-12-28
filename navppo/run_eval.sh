@@ -21,9 +21,9 @@ export OMP_NUM_THREADS=1
 
 python evaluate_trained_model.py > logs/eval/evaluate_trained_model_%j.log 2>&1 &
 p1=$!
-python evaluate_1.py > logs/eval/evaluate_1_%j.log 2>&1 &
+python evaluate_2.py > logs/eval/evaluate_1_%j.log 2>&1 &
 p2=$!
-python evaluate_2.py > logs/eval/evaluate_2_%j.log 2>&1 &
+python evaluate_3.py > logs/eval/evaluate_2_%j.log 2>&1 &
 p3=$!
 
 wait $p1
