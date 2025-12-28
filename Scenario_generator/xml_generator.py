@@ -26,6 +26,11 @@ BLOCK_W = 6
 # Single output folder
 OUT_ROOT= os.path.join("scenarios", "l1_l4")
 OUT_NAIVE = os.path.join("scenarios", "naive_random")
+EXPERIMENT_ROOT = os.path.join("scenarios", "experiment")
+
+OUT_LVL_1_4 = os.path.join(EXPERIMENT_ROOT, "lvl_1_4")
+OUT_LVL_1_5 = os.path.join(EXPERIMENT_ROOT, "lvl_1_5")
+OUT_LVL_5   = os.path.join(EXPERIMENT_ROOT, "lvl_5")
 
 
 # Path to base XML template
@@ -475,6 +480,7 @@ def generate_standard_scenario(
     obstacles: int,
     distance: DistanceLabel,
     seed: int,
+    out_root: str,
     bresenhamRadius: int = 1,
 ) -> ScenarioMeta:
     rng = random.Random(seed)
@@ -513,10 +519,10 @@ def generate_standard_scenario(
         rng=rng,
     )
 
-    ensure_dir(OUT_ROOT)
+    ensure_dir(out_root)
     dist_tag = DIST_ORDER[distance]
     filename = f"lvl{level}_standard_obs{obstacles}_d{dist_tag}_seed{seed}.xml"
-    out_path = os.path.join(OUT_ROOT, filename)
+    out_path = os.path.join(out_root, filename)
 
     write_xml_from_base(grid, agent, target, out_path)
 
@@ -535,11 +541,12 @@ def generate_standard_scenario(
 # ============================
 
 def generate_structured_scenario(
-    scenario: str,          # "deadend" or "corridor"
+    scenario: str,
     depth: int,
     distance: DistanceLabel,
     seed: int,
     obstacles: int,
+    out_root: str,
 ) -> ScenarioMeta:
     assert scenario in ("deadend", "corridor")
 
@@ -651,11 +658,11 @@ def generate_structured_scenario(
             f"Wall count mismatch for {scenario}: expected <= {obstacles}, got {wall_count}"
         )
 
-    ensure_dir(OUT_ROOT)
+    ensure_dir(out_root)
     filename = (
         f"lvl5_{scenario}_obs{obstacles}_d{distance}_depth{depth}_seed{seed}.xml"
     )
-    out_path = os.path.join(OUT_ROOT, filename)
+    out_path = os.path.join(out_root, filename)
 
     write_xml_from_base(grid_full, agent_global, fixed_target, out_path)
 
@@ -713,79 +720,145 @@ def generate_structured_scenario(
 # Master driver
 # ============================
 
-def main() -> None:
-    all_meta: List[ScenarioMeta] = []
-    global_seed = 1001
+def generate_experiment_lvl_1_4(seed_start: int) -> int:
+    out_root = OUT_LVL_1_4
+    ensure_dir(out_root)
 
-    # We'll use only short + mid distances (labels 5 and 10)
+    global_seed = seed_start
     all_dist_labels = ("short", "mid", "long")
-    mid_long_dist_labels = ("mid","long")
+    mid_long_dist_labels = ("mid", "long")
 
-    # Level 1: obstacles=0, ~10 scenarios
-    print("Generating Level 1 (standard, obs=0)...")
+    # You need 10 per level. We'll do: 3+3+4 over (short,mid,long) = 10.
+    dist_reps = {"short": 3, "mid": 3, "long": 4}
+
+    # L1: obs=0
     for dist in all_dist_labels:
-        for _ in range(4):
-            seed = global_seed
+        for _ in range(dist_reps[dist]):
+            generate_standard_scenario(1, 0, dist, global_seed, out_root)
             global_seed += 1
-            all_meta.append(generate_standard_scenario(1, 0, dist, seed))
 
-
-    # Level 2: obstacles=1, ~10 scenarios
-    print("Generating Level 2 (standard, obs=1)...")
+    # L2: obs=1
     for dist in all_dist_labels:
-        for _ in range(4):
-            seed = global_seed
+        for _ in range(dist_reps[dist]):
+            generate_standard_scenario(2, 1, dist, global_seed, out_root)
             global_seed += 1
-            all_meta.append(generate_standard_scenario(2, 1, dist, seed))
+
+    # L3: obs randomly from 2-5 (still standard generator)
+    # 10 total, distances random but within labels
+    for _ in range(10):
+        obs = random.randint(2, 5)
+        dist = random.choice(all_dist_labels)
+        generate_standard_scenario(3, obs, dist, global_seed, out_root)
+        global_seed += 1
+
+    # L4: obs randomly 6-9, dist in (mid,long), bresenhamRadius=2
+    for _ in range(10):
+        obs = random.randint(6, 9)
+        dist = random.choice(mid_long_dist_labels)
+        generate_standard_scenario(4, obs, dist, global_seed, out_root, bresenhamRadius=2)
+        global_seed += 1
+
+    return global_seed
 
 
-    # Level 3: obstacles=(2,3,5), 1 seed
-    print("Generating Level 3 (standard, obs=2,3,5)...")
-    for obs in (2, 3, 4, 5):
-        for dist in all_dist_labels:
-            seed = global_seed
+def generate_experiment_lvl_1_5(seed_start: int) -> int:
+    out_root = OUT_LVL_1_5
+    ensure_dir(out_root)
+
+    global_seed = seed_start
+    all_dist_labels = ("short", "mid", "long")
+    mid_long_dist_labels = ("mid", "long")
+
+    dist_reps = {"short": 3, "mid": 3, "long": 4}
+
+    # L1
+    for dist in all_dist_labels:
+        for _ in range(dist_reps[dist]):
+            generate_standard_scenario(1, 0, dist, global_seed, out_root)
             global_seed += 1
-            all_meta.append(generate_standard_scenario(3, obs, dist, seed))
 
-    # Level 4: obstacles=(6,8,10), 2 seeds
-    print("Generating Level 4 (standard, obs=6,8,10)...")
-    for obs in (6, 7, 8, 9):
-        for dist in mid_long_dist_labels:
-            for _ in range(2):
-                seed = global_seed + 100
-                global_seed += 1
-                all_meta.append(generate_standard_scenario(4, obs, dist, seed, bresenhamRadius=2))
+    # L2
+    for dist in all_dist_labels:
+        for _ in range(dist_reps[dist]):
+            generate_standard_scenario(2, 1, dist, global_seed, out_root)
+            global_seed += 1
 
-    # Level 5: deadend/corridor, depth=(1,2,3),
-    print("Generating Level 5 (deadend & corridor, obs=10)...")
-    for scenario in ("deadend", "corridor"):
-        for depth in (1, 2, 3):
-            for dist in mid_long_dist_labels:
-                seed = global_seed
-                global_seed += 1
-                all_meta.append(
-                    generate_structured_scenario(
-                        scenario=scenario,
-                        depth=depth,
-                        distance=dist,
-                        seed=seed,
-                        obstacles=10,
-                    )
-                )
+    # L3 (10)
+    for _ in range(10):
+        obs = random.randint(2, 5)
+        dist = random.choice(all_dist_labels)
+        generate_standard_scenario(3, obs, dist, global_seed, out_root)
+        global_seed += 1
 
-    # expected = 51  # 9 + 9 + 9 + 12 + 12
-    # if len(all_meta) != expected:
-    #     raise RuntimeError(f"Expected {expected} scenarios in L1–5, got {len(all_meta)}")
+    # L4 (10)
+    for _ in range(10):
+        obs = random.randint(6, 9)
+        dist = random.choice(mid_long_dist_labels)
+        generate_standard_scenario(4, obs, dist, global_seed, out_root, bresenhamRadius=2)
+        global_seed += 1
 
-    # print("Generating Naive Random baseline (51 files)...")
-    # naive_meta = run_naive_random_level(n_files=51, seed_start=9000, out_dir=OUT_NAIVE)
-    # all_meta.extend(naive_meta)
+    # L5 (10) — force 5/5 split
+    rng = random.Random(global_seed)  # deterministic shuffle tied to your seed stream
+    scenarios = ["deadend"] * 5 + ["corridor"] * 5
+    rng.shuffle(scenarios)
 
-    print(
-        f"Done. Levels 1-5: {len(all_meta)} scenarios, "
-        f"All XMLs in: {OUT_ROOT}"
-    )
+    for scenario in scenarios:
+        depth = rng.choice((1, 2, 3))
+        dist = rng.choice(mid_long_dist_labels)
 
+        generate_structured_scenario(
+            scenario=scenario,
+            depth=depth,
+            distance=dist,
+            seed=global_seed,
+            obstacles=10,
+            out_root=out_root,
+        )
+        global_seed += 1
+
+    return global_seed
+
+
+def generate_experiment_lvl_5(seed_start: int) -> int:
+    out_root = OUT_LVL_5
+    ensure_dir(out_root)
+
+    global_seed = seed_start
+    mid_long_dist_labels = ("mid", "long")
+
+    rng = random.Random(global_seed)
+
+    # Force exact balance: 10 deadend + 10 corridor
+    scenarios = ["deadend"] * 10 + ["corridor"] * 10
+    rng.shuffle(scenarios)
+
+    for scenario in scenarios:
+        depth = rng.choice((1, 2, 3))
+        dist = rng.choice(mid_long_dist_labels)
+
+        generate_structured_scenario(
+            scenario=scenario,
+            depth=depth,
+            distance=dist,
+            seed=global_seed,
+            obstacles=10,
+            out_root=out_root,
+        )
+        global_seed += 1
+
+    return global_seed
+
+
+def main() -> None:
+    # One seed stream so nothing overlaps unless you want it to.
+    seed = 2000
+
+    seed = generate_experiment_lvl_1_4(seed)
+    seed = generate_experiment_lvl_1_5(seed)
+    seed = generate_experiment_lvl_5(seed)
+
+    print("Done.")
+    print(f"Generated in:\n  {OUT_LVL_1_4}\n  {OUT_LVL_1_5}\n  {OUT_LVL_5}")
 
 if __name__ == "__main__":
     main()
