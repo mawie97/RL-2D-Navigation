@@ -7,18 +7,18 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from multi_ray_goal_env import MujocoGoalEnv
 
 current_dir = os.path.dirname(__file__)
-xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'train', 'deadend'))
+xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'eval', 'lvl_1_5'))
 xml_paths = sorted([os.path.join(xml_base_dir, f) for f in os.listdir(xml_base_dir) if f.endswith(".xml")])
 
-current_setup = "Model_1_noise0"
+current_setup = "Model_1_noise0_copy"
 
 base_dir = os.path.join(current_dir, "runs", current_setup)
 
-csv_log_path = os.path.join(base_dir, "eval", "all_noise_0", "log", "eval_log.csv")
+csv_log_path = os.path.join(base_dir, "eval", "log", "eval_log.csv")
 os.makedirs(os.path.dirname(csv_log_path), exist_ok=True)
 
 tensorboard_eval_log_dir = os.path.join(
-    base_dir, "eval", "noise_0", "tensorboard"
+    base_dir, "eval", "tensorboard"
 )
 os.makedirs(tensorboard_eval_log_dir, exist_ok=True)
             
@@ -27,8 +27,12 @@ vecnorm_path = os.path.join(base_dir, "envs", "vecnormalize.pkl")
 
 headless = False
 
+eval_monitor_path = os.path.join(base_dir, "eval","log", "monitor.csv")
+os.makedirs(os.path.dirname(eval_monitor_path), exist_ok=True)
+
 def make_env():
-    return Monitor(MujocoGoalEnv(csv_log_path, xml_paths, headless))
+    env = MujocoGoalEnv(csv_log_path, xml_paths, headless)
+    return Monitor(env, filename=eval_monitor_path)
 
 eval_env = DummyVecEnv([make_env])
 eval_env = VecNormalize.load(vecnorm_path, eval_env)
@@ -41,7 +45,7 @@ model = PPO.load(model_path)
 writer = SummaryWriter(log_dir=tensorboard_eval_log_dir)
 
 num_episodes = 0
-max_episodes = 130
+max_episodes = 2
 episode_rewards = []
 
 obs = eval_env.reset()
