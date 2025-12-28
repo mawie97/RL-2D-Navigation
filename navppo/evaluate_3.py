@@ -10,7 +10,7 @@ current_dir = os.path.dirname(__file__)
 xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'eval', 'lvl_5'))
 xml_paths = sorted([os.path.join(xml_base_dir, f) for f in os.listdir(xml_base_dir) if f.endswith(".xml")])
 
-current_setup = "Model_1_noise0_copy"
+current_setup = "hybird_noise3"
 
 base_dir = os.path.join(current_dir, "runs", current_setup)
 
