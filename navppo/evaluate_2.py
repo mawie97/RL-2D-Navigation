@@ -45,7 +45,7 @@ model = PPO.load(model_path)
 writer = SummaryWriter(log_dir=tensorboard_eval_log_dir)
 
 num_episodes = 0
-max_episodes = 153
+max_episodes = 200
 episode_rewards = []
 
 obs = eval_env.reset()
