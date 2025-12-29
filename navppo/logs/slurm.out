@@ -1660,7 +1660,7 @@ current episode: 1499
 current episode: 1500
 Switch model
 current episode: 1501
-[INFO] Training time: 11:05:27 (h:m:s)
+[INFO] Training time: 07:40:27 (h:m:s)
 [INFO] Training completed and model saved.
-[INFO] Model saved to:       /home/rusu/Thesis_Worktrees/l1_l4_3/navppo/runs/l1_l4_noise3/models/model_ppo.zip
-[INFO] VecNormalize saved to: /home/rusu/Thesis_Worktrees/l1_l4_3/navppo/runs/l1_l4_noise3/envs/vecnormalize.pkl
+[INFO] Model saved to:       /home/rusu/Thesis_Worktrees/l1_l4_3/navppo/runs/new_l1_l4_noise3/models/model_ppo.zip
+[INFO] VecNormalize saved to: /home/rusu/Thesis_Worktrees/l1_l4_3/navppo/runs/new_l1_l4_noise3/envs/vecnormalize.pkl
