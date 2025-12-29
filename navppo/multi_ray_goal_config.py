@@ -4,9 +4,9 @@ import numpy as np
 N_RAYS = 12                # Number of rays for sensors can't be changed
 RAY_LENGTH = 1.6           # Length of each ray
 NOISE_STD  = 0.0           # Standard deviation of noise added to ray sensors
-MAX_STEPS = 800            # Maximum steps per episode
+MAX_STEPS = 600            # Maximum steps per episode
 CUTOFF_VALUE = 1.0         # Sensor cutoff distace, when < cutoff, get negative reward
-SWITCH_EVERY = 5          # Frequency to switch xml environments
+SWITCH_EVERY = 10          # Frequency to switch xml environments
 X_MIN,X_MAX,Y_MIN,Y_MAX = -19.5, 19.5,-19.5,19.5 # Agent position boundry
 MAX_DISTANCE = float(np.sqrt((X_MAX - X_MIN)**2 + (Y_MAX - Y_MIN)**2))          # Maximum distance in the layout
 
