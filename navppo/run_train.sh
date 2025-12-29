@@ -2,7 +2,7 @@
 #SBATCH --job-name=navppo_train
 #SBATCH --output=logs/slurm.out
 #SBATCH --error=logs/slurm.err
-#SBATCH --partition=acltr
+#SBATCH --partition=cores
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=8G
