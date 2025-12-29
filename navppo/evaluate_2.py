@@ -14,11 +14,11 @@ current_setup = "new_naive_random_noise3"
 
 base_dir = os.path.join(current_dir, "runs", current_setup)
 
-csv_log_path = os.path.join(base_dir, "eval", "lvl_1_4", "eval_log.csv")
+csv_log_path = os.path.join(base_dir, "eval", "noise0", "lvl_1_4", "eval_log.csv")
 os.makedirs(os.path.dirname(csv_log_path), exist_ok=True)
 
 tensorboard_eval_log_dir = os.path.join(
-    base_dir, "eval","lvl_1_4", "tensorboard"
+    base_dir, "eval", "noise0", "lvl_1_4", "tensorboard"
 )
 os.makedirs(tensorboard_eval_log_dir, exist_ok=True)
             
@@ -27,7 +27,7 @@ vecnorm_path = os.path.join(base_dir, "envs", "vecnormalize.pkl")
 
 headless = True
 
-eval_monitor_path = os.path.join(base_dir, "eval", "lvl_1_4", "monitor.csv")
+eval_monitor_path = os.path.join(base_dir, "eval", "noise0", "lvl_1_4", "monitor.csv")
 os.makedirs(os.path.dirname(eval_monitor_path), exist_ok=True)
 
 def make_env():
