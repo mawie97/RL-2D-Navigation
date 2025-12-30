@@ -10,15 +10,15 @@ current_dir = os.path.dirname(__file__)
 xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'eval', 'lvl_1_5'))
 xml_paths = sorted([os.path.join(xml_base_dir, f) for f in os.listdir(xml_base_dir) if f.endswith(".xml")])
 
-current_setup = "random_bresenham_noise0"
+current_setup = "new_random_bresenham_noise0"
 
 base_dir = os.path.join(current_dir, "runs", current_setup)
 
-csv_log_path = os.path.join(base_dir, "eval", "lvl_1_5", "eval_log.csv")
+csv_log_path = os.path.join(base_dir, "eval", "noise0", "lvl_1_5", "eval_log.csv")
 os.makedirs(os.path.dirname(csv_log_path), exist_ok=True)
 
 tensorboard_eval_log_dir = os.path.join(
-    base_dir, "eval", "lvl_1_5", "tensorboard"
+    base_dir, "eval", "noise0", "lvl_1_5", "tensorboard"
 )
 os.makedirs(tensorboard_eval_log_dir, exist_ok=True)
             
@@ -27,7 +27,7 @@ vecnorm_path = os.path.join(base_dir, "envs", "vecnormalize.pkl")
 
 headless = True
 
-eval_monitor_path = os.path.join(base_dir, "eval","lvl_1_5", "monitor.csv")
+eval_monitor_path = os.path.join(base_dir, "eval", "noise0", "lvl_1_5", "monitor.csv")
 os.makedirs(os.path.dirname(eval_monitor_path), exist_ok=True)
 
 def make_env():
