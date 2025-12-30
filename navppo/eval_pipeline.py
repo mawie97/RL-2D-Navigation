@@ -24,10 +24,11 @@ STRATEGY_ORDER = [
 ]
 
 STRATEGY_LABEL = {
-    "ours_l1l5_solverl5": "Ours (L1–L5, solver L5)",
+    "ours_l1l5_solverl5": "Ours (Hybrid / L1–L5)",
     "naive_random": "Naive random",
     "l1l4_baseline": "L1–L4 baseline",
 }
+
 
 
 def normalize_status(s: str) -> str:
@@ -363,7 +364,7 @@ def main():
     print(df[["model_id", "strategy", "train_noise"]].drop_duplicates().sort_values(["strategy", "train_noise"]))
 
     # Make plots (recommend: start with lvl_5 as main novelty)
-    main_eval_set = "lvl_5"  # change if your folder name is different
+    main_eval_set = "lvl_1_4"  # change if your folder name is different
 
     for tn in TRAIN_NOISE_LEVELS:
         plot_success_vs_eval_noise(df, train_noise=tn, eval_set=main_eval_set,
