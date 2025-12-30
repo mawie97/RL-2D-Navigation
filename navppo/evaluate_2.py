@@ -10,7 +10,11 @@ current_dir = os.path.dirname(__file__)
 xml_base_dir = os.path.abspath(os.path.join(current_dir, 'layouts', 'eval', 'lvl_1_4'))
 xml_paths = sorted([os.path.join(xml_base_dir, f) for f in os.listdir(xml_base_dir) if f.endswith(".xml")])
 
+<<<<<<< HEAD
 current_setup = "new_hybird_noise0"
+=======
+current_setup = "new_naive_random_noise1"
+>>>>>>> naive_random_2
 
 base_dir = os.path.join(current_dir, "runs", current_setup)
 
@@ -18,7 +22,11 @@ csv_log_path = os.path.join(base_dir, "eval", "noise3", "lvl_1_4", "eval_log.csv
 os.makedirs(os.path.dirname(csv_log_path), exist_ok=True)
 
 tensorboard_eval_log_dir = os.path.join(
+<<<<<<< HEAD
     base_dir, "eval","noise3", "lvl_1_4", "tensorboard"
+=======
+    base_dir, "eval", "noise3", "lvl_1_4", "tensorboard"
+>>>>>>> naive_random_2
 )
 os.makedirs(tensorboard_eval_log_dir, exist_ok=True)
             
