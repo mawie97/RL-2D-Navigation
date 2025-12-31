@@ -251,7 +251,6 @@ def plot_success_vs_eval_noise(df: pd.DataFrame, train_noise: float, eval_set: s
     plt.xlabel("Evaluation sensor noise (σ)")
     plt.ylabel("Success rate")
     plt.title("Success Rate vs. Evaluation Sensor Noise")
-    plt.suptitle(f"Success rate vs eval noise (train σ={train_noise}, set={eval_set})")
     plt.legend(frameon=False)
     plt.tight_layout()
 
