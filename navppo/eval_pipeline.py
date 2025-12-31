@@ -20,15 +20,15 @@ EVAL_SET_ORDER = ["lvl_1_5", "lvl_1_4", "lvl_5"]
 STRATEGY_ORDER = [
     "ours_l1l5_solverl5",
     "naive_random",
-    "random_bresenham",
-    "l1l4_baseline",
+    # "random_bresenham",
+    # "l1l4_baseline",
 ]
 
 STRATEGY_LABEL = {
-    "ours_l1l5_solverl5": "Ours (Hybrid / L1–L5)",
+    "ours_l1l5_solverl5": "Ours (Hybrid)",
     "naive_random": "Naive random",
-    "random_bresenham": "Random (Bresenham)",
-    "l1l4_baseline": "L1–L4 baseline",
+    # "random_bresenham": "Random (Bresenham)",
+    # "l1l4_baseline": "L1–L4 baseline",
 }
 
 def normalize_status(s: str) -> str:
@@ -250,7 +250,8 @@ def plot_success_vs_eval_noise(df: pd.DataFrame, train_noise: float, eval_set: s
     plt.ylim(0, 1)
     plt.xlabel("Evaluation sensor noise (σ)")
     plt.ylabel("Success rate")
-    plt.title(f"Success rate vs eval noise (train σ={train_noise}, set={eval_set})")
+    plt.title("Success Rate vs. Evaluation Sensor Noise")
+    plt.suptitle(f"Success rate vs eval noise (train σ={train_noise}, set={eval_set})")
     plt.legend(frameon=False)
     plt.tight_layout()
 
