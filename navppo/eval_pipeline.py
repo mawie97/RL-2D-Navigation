@@ -128,22 +128,18 @@ def merge_eval_dir(eval_dir: str) -> pd.DataFrame:
 
 def infer_strategy_from_model_id(model_id: str) -> str:
     mid = model_id.lower()
+    
+    base = re.sub(r"[_-]?noise[0-9]*\.?[0-9]+$", "", mid)
+    
+    STRATEGY_MAP = {
+        "new_hybird": "ours_l1l5_solverl5",
+        "new_naive_random": "naive_random",
+        "new_random_bresenham": "random_bresenham",
+        "new_l1_l4": "l1l4_baseline",
+    }
 
-    # 1) 先识别 bresenham
-    if "bresenham" in mid:
-        return "random_bresenham"
-
-    # 2) 再识别 naive_random（避免误伤 random_bresenham）
-    if "naive_random" in mid or ("naive" in mid and "random" in mid):
-        return "naive_random"
-
-    # 3) hybrid / hybird
-    if "hybird" in mid or "hybrid" in mid:
-        return "ours_l1l5_solverl5"
-
-    # 4) l1l4
-    if "l1_l4" in mid or "l1l4" in mid:
-        return "l1l4_baseline"
+    if base in STRATEGY_MAP:
+        return STRATEGY_MAP[base]
 
     return "unknown"
 
