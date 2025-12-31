@@ -20,15 +20,15 @@ EVAL_SET_ORDER = ["lvl_1_5", "lvl_1_4", "lvl_5"]
 STRATEGY_ORDER = [
     "ours_l1l5_solverl5",
     "naive_random",
-    # "random_bresenham",
-    # "l1l4_baseline",
+    "random_bresenham",
+    "l1l4_baseline",
 ]
 
 STRATEGY_LABEL = {
     "ours_l1l5_solverl5": "Ours (Hybrid)",
     "naive_random": "Naive random",
-    # "random_bresenham": "Random (Bresenham)",
-    # "l1l4_baseline": "L1–L4 baseline",
+    "random_bresenham": "Random (Bresenham)",
+    "l1l4_baseline": "L1–L4 baseline",
 }
 
 def normalize_status(s: str) -> str:
@@ -327,7 +327,7 @@ def main():
           .sort_values(["strategy", "train_noise"]))
 
     # choose eval set
-    main_eval_set = "lvl_1_5"   # lvl_1_4 lvl_5 lvl_1_5
+    main_eval_set = "lvl_5"   # lvl_1_4 lvl_5 lvl_1_5
 
     for tn in TRAIN_NOISE_LEVELS:
         plot_success_vs_eval_noise(
