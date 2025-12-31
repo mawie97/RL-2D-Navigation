@@ -20,16 +20,16 @@ EVAL_SET_ORDER = ["lvl_1_5", "lvl_1_4", "lvl_5"]
 STRATEGY_ORDER = [
     "ours_l1l5_solverl5",
     "naive_random",
+    "random_bresenham",
     "l1l4_baseline",
 ]
 
 STRATEGY_LABEL = {
     "ours_l1l5_solverl5": "Ours (Hybrid / L1–L5)",
     "naive_random": "Naive random",
+    "random_bresenham": "Random (Bresenham)",
     "l1l4_baseline": "L1–L4 baseline",
 }
-
-
 
 def normalize_status(s: str) -> str:
     s = (s or "").strip()
@@ -129,19 +129,23 @@ def merge_eval_dir(eval_dir: str) -> pd.DataFrame:
 def infer_strategy_from_model_id(model_id: str) -> str:
     mid = model_id.lower()
 
-    if "naive" in mid or "random" in mid:
+    # 1) 先识别 bresenham
+    if "bresenham" in mid:
+        return "random_bresenham"
+
+    # 2) 再识别 naive_random（避免误伤 random_bresenham）
+    if "naive_random" in mid or ("naive" in mid and "random" in mid):
         return "naive_random"
 
+    # 3) hybrid / hybird
     if "hybird" in mid or "hybrid" in mid:
         return "ours_l1l5_solverl5"
 
+    # 4) l1l4
     if "l1_l4" in mid or "l1l4" in mid:
-        # IMPORTANT: your folder name does not reveal curriculum vs no-curriculum.
-        # So we put it into ONE bucket unless you encode that info in the name.
         return "l1l4_baseline"
 
     return "unknown"
-
 
 
 def parse_meta_from_eval_dir(eval_dir: str) -> Dict:
@@ -336,22 +340,6 @@ def paired_signflip_test(df: pd.DataFrame, cond: Dict, strategy_a: str, strategy
     p = (np.sum(np.abs(perm_means) >= abs(obs)) + 1) / (n_perm + 1)
     return obs, p, n
 
-
-def holm_bonferroni(pvals: List[float]) -> List[float]:
-    pvals = np.asarray(pvals, dtype=float)
-    m = len(pvals)
-    order = np.argsort(pvals)
-    adj = np.empty(m, dtype=float)
-    for rank, idx in enumerate(order):
-        adj[idx] = min(1.0, (m - rank) * pvals[idx])
-    # monotonicity
-    for k in range(1, m):
-        prev = order[k - 1]
-        curr = order[k]
-        adj[curr] = max(adj[curr], adj[prev])
-    return adj.tolist()
-
-
 # -----------------------------
 # 8) Main: run everything
 # -----------------------------
@@ -361,30 +349,37 @@ def main():
 
     # Quick sanity
     print("Loaded rows:", len(df))
-    print(df[["model_id", "strategy", "train_noise"]].drop_duplicates().sort_values(["strategy", "train_noise"]))
+    print(df[["model_id", "strategy", "train_noise"]]
+          .drop_duplicates()
+          .sort_values(["strategy", "train_noise"]))
 
-    # Make plots (recommend: start with lvl_5 as main novelty)
-    main_eval_set = "lvl_1_4"  # change if your folder name is different
+    # 选你要画图的 eval set
+    main_eval_set = "lvl_1_4"  # or lvl_5 / lvl_1_5
 
+    # 画图：每个 train_noise 一张曲线图 + 一张柱状图
     for tn in TRAIN_NOISE_LEVELS:
-        plot_success_vs_eval_noise(df, train_noise=tn, eval_set=main_eval_set,
-                                   savepath=f"fig_success_line_{main_eval_set}_train{tn}.png")
-        plot_success_bar_by_strategy(df, train_noise=tn, eval_set=main_eval_set,
-                                     savepath=f"fig_success_bar_{main_eval_set}_train{tn}.png")
+        plot_success_vs_eval_noise(
+            df, train_noise=tn, eval_set=main_eval_set,
+            savepath=f"fig_success_line_{main_eval_set}_train{tn}.png"
+        )
+        plot_success_bar_by_strategy(
+            df, train_noise=tn, eval_set=main_eval_set,
+            savepath=f"fig_success_bar_{main_eval_set}_train{tn}.png"
+        )
 
-    tests = []
-    for tn in TRAIN_NOISE_LEVELS:
-        cond = {"train_noise": tn, "eval_noise": 0.01, "eval_set": main_eval_set}
-        for baseline in ["naive_random", "curriculum_l1l4", "no_curriculum_l1l4"]:
-            delta, p, n = paired_signflip_test(df, cond, "ours_l1l5_solverl5", baseline)
-            tests.append((tn, baseline, delta, p, n))
+    # 单一对照检验：L1–L5 vs L1–L4，在 lvl_5 set，eval_noise=0.01，train_noise=0.01
+    cond = {"train_noise": 0.01, "eval_noise": 0.01, "eval_set": "lvl_5"}
+    delta, p, n = paired_signflip_test(
+        df,
+        cond=cond,
+        strategy_a="ours_l1l5_solverl5",
+        strategy_b="l1l4_baseline"
+    )
 
-    pvals = [t[3] for t in tests]
-    p_adj = holm_bonferroni(pvals)
+    print("\nPaired sign-flip test (episode-level)")
+    print("Condition:", cond)
+    print(f"Δ(success rate) = {delta:+.3f}, p = {p:.4g}, n_paired = {n}")
 
-    print("\nPaired sign-flip tests (episode-level) on eval_noise=0.01, set=lvl_5 (Holm corrected):")
-    for (tn, baseline, delta, p, n), adj in zip(tests, p_adj):
-        print(f"train σ={tn:>4} | ours - {baseline:>18} | Δ={delta:+.3f} | p={p:.4g} | p_adj={adj:.4g} | n={n}")
 
 if __name__ == "__main__":
     main()
