@@ -20,15 +20,15 @@ EVAL_SET_ORDER = ["lvl_1_5", "lvl_1_4", "lvl_5"]
 STRATEGY_ORDER = [
     "ours_l1l5_solverl5",
     "naive_random",
-    "random_bresenham",
-    "l1l4_baseline",
+    # "random_bresenham",
+    # "l1l4_baseline",
 ]
 
 STRATEGY_LABEL = {
-    "ours_l1l5_solverl5": "Ours (Hybrid)",
+    "ours_l1l5_solverl5": "L1-L5 (Hybrid)",
     "naive_random": "Naive random",
-    "random_bresenham": "Random (Bresenham)",
-    "l1l4_baseline": "L1–L4 baseline",
+    # "random_bresenham": "Bresenham random",
+    # "l1l4_baseline": "L1–L4 (Procedural)",
 }
 
 def normalize_status(s: str) -> str:
@@ -283,7 +283,7 @@ def plot_success_bar_by_strategy(df: pd.DataFrame, train_noise: float, eval_set:
     plt.xticks(x, [STRATEGY_LABEL[s] for s in STRATEGY_ORDER], rotation=15, ha="right")
     plt.ylim(0, 1)
     plt.ylabel("Success rate")
-    plt.title(f"Success rate by strategy (train σ={train_noise}, set={eval_set})")
+    plt.title(f"Success Rate by Strategy")
     plt.legend(frameon=False)
     plt.tight_layout()
 
@@ -327,17 +327,17 @@ def main():
           .sort_values(["strategy", "train_noise"]))
 
     # choose eval set
-    main_eval_set = "lvl_5"   # lvl_1_4 lvl_5 lvl_1_5
+    main_eval_set = "lvl_1_5"   # lvl_1_4 lvl_5 lvl_1_5
 
     for tn in TRAIN_NOISE_LEVELS:
         plot_success_vs_eval_noise(
             df, train_noise=tn, eval_set=main_eval_set,
             savepath=f"fig_success_line_{main_eval_set}_train{tn}.png"
         )
-        plot_success_bar_by_strategy(
-            df, train_noise=tn, eval_set=main_eval_set,
-            savepath=f"fig_success_bar_{main_eval_set}_train{tn}.png"
-        )
+        # plot_success_bar_by_strategy(
+        #     df, train_noise=tn, eval_set=main_eval_set,
+        #     savepath=f"fig_success_bar_{main_eval_set}_train{tn}.png"
+        # )
 
     # L1–L5 vs L1–L4，在 lvl_5 set，eval_noise=0.01，train_noise=0.01
     cond = {"train_noise": 0.01, "eval_noise": 0.01, "eval_set": "lvl_5"}
