@@ -1,13 +1,9 @@
 import os
-import math
 import random
-import shutil
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Literal
 
-
 from generator_bresenham import BresenhamStandardGenerator
-from generator_proc import ProceduralScenarioGenerator, GridSpec
 from generator_solver import SymbolicScenarioGenerator
 
 Coord = Tuple[int, int]
@@ -16,22 +12,22 @@ Coord = Tuple[int, int]
 # Config
 # ============================
 
+# Grid size
 FULL_H = 15
 FULL_W = 15
 
-# Block size for deadend/corridor
+# Symbolic block size
 BLOCK_H = 6
 BLOCK_W = 6
 
 # Single output folder
-OUT_ROOT= os.path.join("scenarios", "l1_l4")
-OUT_NAIVE = os.path.join("scenarios", "naive_random")
+# OUT_ROOT= os.path.join("scenarios", "l1_l4")
+# OUT_NAIVE = os.path.join("scenarios", "naive_random")
 EXPERIMENT_ROOT = os.path.join("scenarios", "experiment")
 
 OUT_LVL_1_4 = os.path.join(EXPERIMENT_ROOT, "lvl_1_4")
 OUT_LVL_1_5 = os.path.join(EXPERIMENT_ROOT, "lvl_1_5")
 OUT_LVL_5   = os.path.join(EXPERIMENT_ROOT, "lvl_5")
-
 
 # Path to base XML template
 BASE_XML_PATH = os.path.join(os.path.dirname(__file__), "base_layout.xml")
@@ -61,7 +57,6 @@ class ScenarioMeta:
     seed: int
     depth: Optional[int]   # for deadend/corridor only
     path: str              # path to XML file
-
 
 # ============================
 # Distance helpers
@@ -143,26 +138,8 @@ def candidate_offsets_for_at(
     return candidates
 
 
-def embed_block(
-    big_H: int,
-    big_W: int,
-    block: List[List[bool]],
-    offset: Coord,
-) -> List[List[bool]]:
-    Hs, Ws = len(block), len(block[0])
-    br0, bc0 = offset
-    assert br0 + Hs <= big_H and bc0 + Ws <= big_W, "offset out of range"
-
-    grid = [[True for _ in range(big_W)] for _ in range(big_H)]
-    for r in range(Hs):
-        for c in range(Ws):
-            grid[br0 + r][bc0 + c] = block[r][c]
-    return grid
-
-
 def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
-
 
 # ============================
 # XML construction using base_layout.xml
@@ -485,12 +462,10 @@ def generate_standard_scenario(
 ) -> ScenarioMeta:
     rng = random.Random(seed)
     target = TARGET_DEFAULT
-
-    # Use Manhattan band 
     band_min, band_max = distance_band_for_label(distance)
-
     candidates: List[Coord] = []
     tr, tc = target
+    
     for r in range(FULL_H):
         for c in range(FULL_W):
             if (r, c) == target:
