@@ -235,11 +235,6 @@ def condition_summary_with_ci(df: pd.DataFrame) -> pd.DataFrame:
         rows.append(dict(zip(keys, key), mean=mean, ci_lo=lo, ci_hi=hi, n_ep=len(grp)))
     return pd.DataFrame(rows)
 
-
-# -----------------------------
-# 5) Plot 1: 4 curves per train noise
-# -----------------------------
-
 def plot_success_vs_eval_noise(df: pd.DataFrame, train_noise: float, eval_set: str, savepath: str = None):
     summ = condition_summary_with_ci(df[(df["train_noise"] == train_noise) & (df["eval_set"] == eval_set)])
 
@@ -262,11 +257,6 @@ def plot_success_vs_eval_noise(df: pd.DataFrame, train_noise: float, eval_set: s
     if savepath:
         plt.savefig(savepath, dpi=200)
     plt.show()
-
-
-# -----------------------------
-# 6) Plot 2: grouped bars (3 bars per strategy)
-# -----------------------------
 
 def plot_success_bar_by_strategy(df: pd.DataFrame, train_noise: float, eval_set: str, savepath: str = None):
     summ = condition_summary_with_ci(df[(df["train_noise"] == train_noise) & (df["eval_set"] == eval_set)])
@@ -301,17 +291,9 @@ def plot_success_bar_by_strategy(df: pd.DataFrame, train_noise: float, eval_set:
         plt.savefig(savepath, dpi=200)
     plt.show()
 
-
-# -----------------------------
-# 7) Stats: paired permutation test (episode-level)
-# -----------------------------
-
 def paired_signflip_test(df: pd.DataFrame, cond: Dict, strategy_a: str, strategy_b: str,
                          n_perm: int = 10000, seed: int = 0) -> Tuple[float, float, int]:
     """
-    Paired sign-flip test on episode-level success indicators.
-    Pairing assumes both strategies have same number of episodes under the condition.
-    (Best is scenario-level pairing, but you don't have xml_id yet.)
     Returns: (delta_mean, p_value, n_paired)
     """
     d = df.copy()
@@ -336,23 +318,17 @@ def paired_signflip_test(df: pd.DataFrame, cond: Dict, strategy_a: str, strategy
     p = (np.sum(np.abs(perm_means) >= abs(obs)) + 1) / (n_perm + 1)
     return obs, p, n
 
-# -----------------------------
-# 8) Main: run everything
-# -----------------------------
-
 def main():
     df = load_all_evaluations("runs")
 
-    # Quick sanity
     print("Loaded rows:", len(df))
     print(df[["model_id", "strategy", "train_noise"]]
           .drop_duplicates()
           .sort_values(["strategy", "train_noise"]))
 
-    # 选你要画图的 eval set
-    main_eval_set = "lvl_1_4"  # or lvl_5 / lvl_1_5
+    # choose eval set
+    main_eval_set = "lvl_1_5"   # lvl_1_4 lvl_5 lvl_1_5
 
-    # 画图：每个 train_noise 一张曲线图 + 一张柱状图
     for tn in TRAIN_NOISE_LEVELS:
         plot_success_vs_eval_noise(
             df, train_noise=tn, eval_set=main_eval_set,
@@ -363,13 +339,13 @@ def main():
             savepath=f"fig_success_bar_{main_eval_set}_train{tn}.png"
         )
 
-    # 单一对照检验：L1–L5 vs L1–L4，在 lvl_5 set，eval_noise=0.01，train_noise=0.01
+    # L1–L5 vs L1–L4，在 lvl_5 set，eval_noise=0.01，train_noise=0.01
     cond = {"train_noise": 0.01, "eval_noise": 0.01, "eval_set": "lvl_5"}
     delta, p, n = paired_signflip_test(
         df,
         cond=cond,
         strategy_a="ours_l1l5_solverl5",
-        strategy_b="l1l4_baseline"
+        strategy_b="naive_random"
     )
 
     print("\nPaired sign-flip test (episode-level)")
