@@ -14,7 +14,6 @@ EVAL_NOISE_LEVELS = [0.0, 0.01, 0.03]
 
 TRAIN_NOISE_LEVELS = [0.0, 0.01, 0.03]
 
-# Evaluation sets folder names lvl_1_4, lvl_1_5, lvl_5
 EVAL_SET_ORDER = ["lvl_1_5", "lvl_1_4", "lvl_5"]
 
 STRATEGY_ORDER = [
@@ -25,10 +24,10 @@ STRATEGY_ORDER = [
 ]
 
 STRATEGY_LABEL = {
-    "ours_l1l5_solverl5": "L1-L5 (Hybrid)",
-    # "naive_random": "Naive random",
-    # "random_bresenham": "Bresenham random",
-    "l1l4_baseline": "L1–L4 (Procedural)",
+    "ours_l1l5_solverl5": "Hybrid",
+    # "naive_random": "Naive",
+    # "random_bresenham": "Non-Curriculum(L1-L4)",
+    "l1l4_baseline": "Curriculum(L1–L4)",
 }
 
 def normalize_status(s: str) -> str:
@@ -125,8 +124,8 @@ def merge_eval_dir(eval_dir: str) -> pd.DataFrame:
     # default: all episodes in one bucket
     merged["case"] = "all"
 
-    if eval_set == "lvl_5":
-        merged["case"] = np.where(merged["episode"] <= 50, "corridor", "deadend")
+    # if eval_set == "lvl_5":
+    #     merged["case"] = np.where(merged["episode"] <= 50, "corridor", "deadend")
 
     if len(ep) != len(mon):
         print(f"[WARN] Episode count mismatch in {eval_dir}: status={len(ep)} monitor={len(mon)} overlap={len(merged)}")
@@ -140,7 +139,7 @@ def infer_strategy_from_model_id(model_id: str) -> str:
     base = re.sub(r"[_-]?noise[0-9]*\.?[0-9]+$", "", mid)
     
     STRATEGY_MAP = {
-        "new_hybird": "ours_l1l5_solverl5",
+        "new_hybrid": "ours_l1l5_solverl5",
         "new_naive_random": "naive_random",
         "new_random_bresenham": "random_bresenham",
         "new_l1_l4": "l1l4_baseline",
@@ -415,21 +414,21 @@ def main():
     main_eval_set = "lvl_5"
 
     for tn in TRAIN_NOISE_LEVELS:
-         for case_name in cases_for_eval_set(main_eval_set):
+        #  for case_name in cases_for_eval_set(main_eval_set):
             summ_line = plot_success_vs_eval_noise(
                 df,
                 train_noise=tn,
                 eval_set=main_eval_set,
-                case_name=case_name,
-                savepath=f"fig_success_line_{main_eval_set}_{case_name}_train{tn}.png"
+                case_name="all",
+                savepath=f"fig_success_line_{main_eval_set}_all_train{tn}.png"
             )
             # --- export table for the same condition ---
-            out_prefix = f"table_success_{main_eval_set}_{case_name}_train{tn}".replace(".", "p")
+            out_prefix = f"table_success_{main_eval_set}_all_train{tn}".replace(".", "p")
             make_table_for_overleaf(
                 summ=summ_line,
                 train_noise=tn,
                 eval_set=main_eval_set,
-                case_name=case_name,
+                case_name="all",
                 strategies=STRATEGY_ORDER,
                 eval_noises=EVAL_NOISE_LEVELS,
                 out_prefix=out_prefix,
@@ -439,44 +438,9 @@ def main():
                 df, 
                 train_noise=tn, 
                 eval_set=main_eval_set,
-                case_name=case_name,
-                savepath=f"fig_success_bar_{main_eval_set}_{case_name}_train{tn}.png"
+                case_name="all",
+                savepath=f"fig_success_bar_{main_eval_set}_all_train{tn}.png"
             )
-
-
-# def main():
-#     df = load_all_evaluations("runs")
-
-#     print("Loaded rows:", len(df))
-#     print(df[["model_id", "strategy", "train_noise"]]
-#           .drop_duplicates()
-#           .sort_values(["strategy", "train_noise"]))
-
-#     # choose eval set
-#     main_eval_set = "lvl_1_5"   # lvl_1_4 lvl_5 lvl_1_5
-
-#     for tn in TRAIN_NOISE_LEVELS:
-#         plot_success_vs_eval_noise(
-#             df, train_noise=tn, eval_set=main_eval_set,
-#             savepath=f"fig_success_line_{main_eval_set}_train{tn}.png"
-#         )
-#         # plot_success_bar_by_strategy(
-#         #     df, train_noise=tn, eval_set=main_eval_set,
-#         #     savepath=f"fig_success_bar_{main_eval_set}_train{tn}.png"
-#         # )
-
-#     # L1–L5 vs L1–L4，在 lvl_5 set，eval_noise=0.01，train_noise=0.01
-#     cond = {"train_noise": 0.01, "eval_noise": 0.01, "eval_set": "lvl_5"}
-#     delta, p, n = paired_signflip_test(
-#         df,
-#         cond=cond,
-#         strategy_a="ours_l1l5_solverl5",
-#         strategy_b="naive_random"
-#     )
-
-#     print("\nPaired sign-flip test (episode-level)")
-#     print("Condition:", cond)
-#     print(f"Δ(success rate) = {delta:+.3f}, p = {p:.4g}, n_paired = {n}")
 
 
 if __name__ == "__main__":

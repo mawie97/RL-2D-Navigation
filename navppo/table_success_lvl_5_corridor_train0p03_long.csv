@@ -1,7 +1,0 @@
-strategy,train_noise,eval_noise,eval_set,case,mean,ci_lo,ci_hi,n_ep
-l1l4_baseline,0.03,0.0,lvl_5,corridor,0.18,0.08,0.3,50
-l1l4_baseline,0.03,0.01,lvl_5,corridor,0.26,0.14,0.38,50
-l1l4_baseline,0.03,0.03,lvl_5,corridor,0.52,0.38,0.66,50
-ours_l1l5_solverl5,0.03,0.0,lvl_5,corridor,0.58,0.44,0.72,50
-ours_l1l5_solverl5,0.03,0.01,lvl_5,corridor,0.6,0.46,0.74,50
-ours_l1l5_solverl5,0.03,0.03,lvl_5,corridor,0.64,0.5,0.78,50
