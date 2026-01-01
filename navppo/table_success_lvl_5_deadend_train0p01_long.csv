@@ -1,0 +1,7 @@
+strategy,train_noise,eval_noise,eval_set,case,mean,ci_lo,ci_hi,n_ep
+l1l4_baseline,0.01,0.0,lvl_5,deadend,0.18,0.08,0.3,50
+l1l4_baseline,0.01,0.01,lvl_5,deadend,0.2,0.1,0.32,50
+l1l4_baseline,0.01,0.03,lvl_5,deadend,0.18,0.08,0.3,50
+ours_l1l5_solverl5,0.01,0.0,lvl_5,deadend,0.1,0.02,0.2,50
+ours_l1l5_solverl5,0.01,0.01,lvl_5,deadend,0.16,0.06,0.26,50
+ours_l1l5_solverl5,0.01,0.03,lvl_5,deadend,0.14,0.06,0.24,50

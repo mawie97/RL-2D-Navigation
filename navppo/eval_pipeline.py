@@ -26,7 +26,7 @@ STRATEGY_ORDER = [
 
 STRATEGY_LABEL = {
     "ours_l1l5_solverl5": "L1-L5 (Hybrid)",
-    #"naive_random": "Naive random",
+    # "naive_random": "Naive random",
     # "random_bresenham": "Bresenham random",
     "l1l4_baseline": "L1–L4 (Procedural)",
 }
@@ -232,7 +232,7 @@ def bootstrap_ci_mean(values: np.ndarray, n_boot: int = 5000, alpha: float = 0.0
     return lo, hi
 
 def condition_summary_with_ci(df: pd.DataFrame) -> pd.DataFrame:
-    keys = ["strategy", "train_noise", "eval_noise", "eval_set", "case"]
+    keys = ["strategy", "train_noise", "eval_noise", "eval_set", "case"]  # <- add case
     rows = []
     for key, grp in df.groupby(keys):
         succ = grp["is_success"].astype(float).to_numpy()
@@ -240,6 +240,7 @@ def condition_summary_with_ci(df: pd.DataFrame) -> pd.DataFrame:
         lo, hi = bootstrap_ci_mean(succ)
         rows.append(dict(zip(keys, key), mean=mean, ci_lo=lo, ci_hi=hi, n_ep=len(grp)))
     return pd.DataFrame(rows)
+
 
 def plot_success_vs_eval_noise(df: pd.DataFrame, train_noise: float, eval_set: str, case_name: str = "all", savepath: str = None):
     sub = df[(df["train_noise"] == train_noise) & (df["eval_set"] == eval_set) & (df["case"] == case_name)]
@@ -265,8 +266,21 @@ def plot_success_vs_eval_noise(df: pd.DataFrame, train_noise: float, eval_set: s
         plt.savefig(savepath, dpi=200)
     plt.show()
 
-def plot_success_bar_by_strategy(df: pd.DataFrame, train_noise: float, eval_set: str, savepath: str = None):
-    summ = condition_summary_with_ci(df[(df["train_noise"] == train_noise) & (df["eval_set"] == eval_set)])
+    return summ
+
+def plot_success_bar_by_strategy(
+    df: pd.DataFrame,
+    train_noise: float,
+    eval_set: str,
+    case_name: str,          # <- new
+    savepath: str = None
+):
+    sub = df[
+        (df["train_noise"] == train_noise) &
+        (df["eval_set"] == eval_set) &
+        (df["case"] == case_name)        # <- filter case
+    ]
+    summ = condition_summary_with_ci(sub)
 
     x = np.arange(len(STRATEGY_ORDER))
     width = 0.25
@@ -275,7 +289,11 @@ def plot_success_bar_by_strategy(df: pd.DataFrame, train_noise: float, eval_set:
     for j, enoise in enumerate(EVAL_NOISE_LEVELS):
         means, loerr, hierr = [], [], []
         for strat in STRATEGY_ORDER:
-            row = summ[(summ["strategy"] == strat) & (summ["eval_noise"] == enoise)]
+            row = summ[
+                (summ["strategy"] == strat) &
+                (summ["eval_noise"] == enoise) &
+                (summ["case"] == case_name)   # <- ensure case match
+            ]
             if row.empty:
                 means.append(np.nan); loerr.append(np.nan); hierr.append(np.nan)
             else:
@@ -290,13 +308,76 @@ def plot_success_bar_by_strategy(df: pd.DataFrame, train_noise: float, eval_set:
     plt.xticks(x, [STRATEGY_LABEL[s] for s in STRATEGY_ORDER], rotation=15, ha="right")
     plt.ylim(0, 1)
     plt.ylabel("Success rate")
-    plt.title(f"Success Rate by Strategy")
+    plt.title(f"Success Rate by Strategy ({case_name})")
     plt.legend(frameon=False)
     plt.tight_layout()
 
     if savepath:
         plt.savefig(savepath, dpi=200)
     plt.show()
+
+    return summ
+
+def make_table_for_overleaf(
+    summ: pd.DataFrame,
+    train_noise: float,
+    eval_set: str,
+    case_name: str,
+    strategies: List[str],
+    eval_noises: List[float],
+    out_prefix: str,
+):
+    """
+    Creates:
+      1) a "long" CSV: one row per (strategy, eval_noise)
+      2) a "wide" CSV: one row per strategy, columns for each eval_noise
+      3) a LaTeX tabular (printed + saved as .tex)
+    Values shown as: mean [ci_lo, ci_hi]
+    """
+    sub = summ[
+        (summ["train_noise"] == train_noise) &
+        (summ["eval_set"] == eval_set) &
+        (summ["case"] == case_name) &
+        (summ["strategy"].isin(strategies)) &
+        (summ["eval_noise"].isin(eval_noises))
+    ].copy()
+
+    # ---- long format CSV (good for debugging) ----
+    long_csv = f"{out_prefix}_long.csv"
+    sub.sort_values(["strategy", "eval_noise"]).to_csv(long_csv, index=False)
+
+    # ---- make a pretty cell string ----
+    def fmt_row(r):
+        return f'{r["mean"]:.3f} [{r["ci_lo"]:.3f}, {r["ci_hi"]:.3f}]'
+
+    sub["cell"] = sub.apply(fmt_row, axis=1)
+
+    # ---- wide format ----
+    wide = sub.pivot_table(index="strategy", columns="eval_noise", values="cell", aggfunc="first")
+    wide = wide.reindex(strategies)
+    wide = wide.rename(index=STRATEGY_LABEL)  # use nice names in the table
+
+    # rename columns to "σ=..."
+    wide.columns = [f"$\\sigma={c}$" for c in wide.columns]
+
+    wide_csv = f"{out_prefix}_wide.csv"
+    wide.to_csv(wide_csv)
+
+    # ---- LaTeX ----
+    latex = wide.to_latex(
+        escape=False,
+        na_rep="--",
+        column_format="l" + "c" * len(wide.columns),
+    )
+
+    tex_path = f"{out_prefix}.tex"
+    with open(tex_path, "w", encoding="utf-8") as f:
+        f.write(latex)
+
+    print("\n===== LaTeX table (copy to Overleaf) =====")
+    print(latex)
+    print("Saved:", long_csv, wide_csv, tex_path)
+
 
 def paired_signflip_test(df: pd.DataFrame, cond: Dict, strategy_a: str, strategy_b: str,
                          n_perm: int = 10000, seed: int = 0) -> Tuple[float, float, int]:
@@ -325,20 +406,35 @@ def paired_signflip_test(df: pd.DataFrame, cond: Dict, strategy_a: str, strategy
     p = (np.sum(np.abs(perm_means) >= abs(obs)) + 1) / (n_perm + 1)
     return obs, p, n
 
+def cases_for_eval_set(eval_set: str) -> List[str]:
+    return ["corridor", "deadend"] if eval_set == "lvl_5" else ["all"]
+
 def main():
     df = load_all_evaluations("runs")
 
     main_eval_set = "lvl_5"
 
     for tn in TRAIN_NOISE_LEVELS:
-        for case_name in ["corridor", "deadend"]:
-            plot_success_vs_eval_noise(
+         for case_name in cases_for_eval_set(main_eval_set):
+            summ_line = plot_success_vs_eval_noise(
                 df,
                 train_noise=tn,
                 eval_set=main_eval_set,
                 case_name=case_name,
                 savepath=f"fig_success_line_{main_eval_set}_{case_name}_train{tn}.png"
             )
+            # --- export table for the same condition ---
+            out_prefix = f"table_success_{main_eval_set}_{case_name}_train{tn}".replace(".", "p")
+            make_table_for_overleaf(
+                summ=summ_line,
+                train_noise=tn,
+                eval_set=main_eval_set,
+                case_name=case_name,
+                strategies=STRATEGY_ORDER,
+                eval_noises=EVAL_NOISE_LEVELS,
+                out_prefix=out_prefix,
+            )
+
             plot_success_bar_by_strategy(
                 df, 
                 train_noise=tn, 

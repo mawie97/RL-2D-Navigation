@@ -1,0 +1,13 @@
+strategy,train_noise,eval_noise,eval_set,case,mean,ci_lo,ci_hi,n_ep
+l1l4_baseline,0.03,0.0,lvl_1_5,all,0.232,0.18,0.284,250
+l1l4_baseline,0.03,0.01,lvl_1_5,all,0.308,0.252,0.368,250
+l1l4_baseline,0.03,0.03,lvl_1_5,all,0.536,0.472,0.596,250
+naive_random,0.03,0.0,lvl_1_5,all,0.216,0.168,0.268,250
+naive_random,0.03,0.01,lvl_1_5,all,0.212,0.164,0.264,250
+naive_random,0.03,0.03,lvl_1_5,all,0.204,0.156,0.252,250
+ours_l1l5_solverl5,0.03,0.0,lvl_1_5,all,0.5,0.44,0.564,250
+ours_l1l5_solverl5,0.03,0.01,lvl_1_5,all,0.484,0.424,0.5440999999999986,250
+ours_l1l5_solverl5,0.03,0.03,lvl_1_5,all,0.512,0.452,0.576,250
+random_bresenham,0.03,0.0,lvl_1_5,all,0.788,0.736,0.836,250
+random_bresenham,0.03,0.01,lvl_1_5,all,0.792,0.74,0.84,250
+random_bresenham,0.03,0.03,lvl_1_5,all,0.788,0.736,0.84,250
