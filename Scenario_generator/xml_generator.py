@@ -1,4 +1,3 @@
-# xml_generator.py
 from __future__ import annotations
 
 import os
@@ -34,7 +33,6 @@ def ensure_dir(path: str) -> None:
 
 
 def distance_band_for_label(label: DistanceLabel) -> tuple[int, int]:
-    # Keep exactly as your current runner uses
     if label == "short":
         return (3, 6)
     if label == "mid":
@@ -103,7 +101,6 @@ def generate_standard_scenario(
     filename = f"lvl{level}_standard_obs{obstacles}_d{dist_tag}_seed{seed}.xml"
     out_path = os.path.join(out_root, filename)
 
-    # Pass rng so jitter is deterministic per seed (optional but recommended)
     write_xml_from_base(grid, agent, target, out_path, rng=rng)
 
     return ScenarioMeta(level, "standard", obstacles, distance, seed, None, out_path)
@@ -186,7 +183,6 @@ def generate_experiment_lvl_1_5(seed_start: int) -> int:
     seed = seed_start
 
     # Reuse the same lvl1-4 recipe but output into lvl_1_5 folder
-    # (keeps your current structure)
     all_dist = ("short", "mid", "long")
     mid_long = ("mid", "long")
 
@@ -256,7 +252,7 @@ def generate_experiment_lvl_5(seed_start: int) -> int:
 
 
 def main() -> None:
-    seed = 1
+    seed = 4
     seed = generate_experiment_lvl_1_4(seed)
     seed = generate_experiment_lvl_1_5(seed)
     seed = generate_experiment_lvl_5(seed)

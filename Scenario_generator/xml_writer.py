@@ -1,4 +1,3 @@
-# xml_writer.py
 from __future__ import annotations
 
 import os
@@ -10,7 +9,6 @@ Coord = Tuple[int, int]
 # Path to base XML template
 BASE_XML_PATH = os.path.join(os.path.dirname(__file__), "base_layout.xml")
 
-# Same arena / height as your existing setup
 ARENA_HALF_EXTENT = 15.0
 OBSTACLE_HEIGHT = 0.25
 AGENT_HEIGHT = 0.25
@@ -35,7 +33,6 @@ def build_xml_from_base(
         raise FileNotFoundError(f"BASE_XML_PATH not found: {BASE_XML_PATH}")
 
     if rng is None:
-        # If you want full determinism, pass rng from the runner/generator.
         rng = random.Random()
 
     with open(BASE_XML_PATH, "r", encoding="utf-8") as f:

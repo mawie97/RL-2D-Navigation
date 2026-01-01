@@ -26,15 +26,14 @@ class SymbolicScenarioGenerator:
         spawn: Coord = (1,1),
 
     ) -> Tuple[
-        List[List[bool]],                # grid: True = wall, False = free
-        Optional[Coord],                 # chosen deadend endpoint (if any)
-        int,                             # deadend depth from start (or -1)
-        List[Coord],                     # deadend simple path (ordered)
-        List[Coord],                     # corridor simple path (ordered)
+        List[List[bool]],                
+        Optional[Coord],                 
+        int,                             
+        List[Coord],                     
+        List[Coord],                     
     ]:
         """
         Build a 2D grid with optional symbolic dead-end path and corridor path.
-
         Returns:
             grid           : HxW bools, grid[r][c] == True means WALL.
             chosen_dead    : a chosen dead-end endpoint (if deadend enabled), else None.
@@ -388,7 +387,6 @@ class SymbolicScenarioGenerator:
                 corr_endpoints = [rc for rc in corridor_cells if len(corr_neighbors(rc)) == 1]
 
                 if corr_endpoints:
-                    # deterministic start: closest endpoint to spawn by dist[][], tie-break lexicographically
                     def dist_val(rc: Coord) -> int:
                         rr, cc = rc
                         return m.evaluate(dist[rr][cc]).as_long()
@@ -407,7 +405,6 @@ class SymbolicScenarioGenerator:
                     if not nbs:
                         break
 
-                    # deterministic next step if anything weird happens (should be 1 in a chain)
                     nbs.sort()
                     nxt = nbs[0]
 
