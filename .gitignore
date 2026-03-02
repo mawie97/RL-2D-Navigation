@@ -273,3 +273,7 @@ navppo/runs/
 
 # IDE
 .idea/
+
+# experiment outputs
+navppo/runs/
+.idea/
