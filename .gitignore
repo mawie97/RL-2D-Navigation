@@ -266,3 +266,10 @@ gradle-app.setting
 
 __pycache__/
 *.pyc
+
+# experiment logs
+navppo/runs/
+*.csv
+
+# IDE
+.idea/
